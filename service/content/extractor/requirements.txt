@@ -1,0 +1,12 @@
+PyMuPDF 
+Pillow
+openai
+google-generativeai
+anthropic
+boto3
+langchain 
+langchain-openai 
+langchain-google-genai 
+langchain-anthropic
+
+
