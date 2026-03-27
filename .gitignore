@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# SQLite database (runtime data, not source)
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Environment / secrets
+.env
+.env.local
+
+# Vite cache
+ui/.vite/
+
+# Python
+venv/
+__pycache__/
+*.pyc

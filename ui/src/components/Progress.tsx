@@ -1,6 +1,8 @@
-import { getSessions } from '../utils/storage';
+import { useState, useEffect } from 'react';
+import { getSessions } from '../api/client';
 import { getClassData } from '../data/curriculum';
 import { toBengaliNumber, toBengaliPercent } from '../utils/bengali';
+import type { PracticeSession } from '../types';
 
 interface Props {
   classId: number;
@@ -8,7 +10,11 @@ interface Props {
 }
 
 export default function Progress({ classId, darkMode }: Props) {
-  const sessions = getSessions().filter(s => s.classId === classId);
+  const [sessions, setSessions] = useState<PracticeSession[]>([]);
+
+  useEffect(() => {
+    getSessions(classId).then(setSessions).catch(() => setSessions([]));
+  }, [classId]);
   const classData = getClassData(classId);
 
   const bg = darkMode ? '#0f172a' : '#f8fafc';

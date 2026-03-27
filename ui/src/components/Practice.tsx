@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { getClassData, getAllQuestions } from '../data/curriculum';
 import { toBengaliNumber, toBengaliPercent, bengaliOptionLabels } from '../utils/bengali';
-import { saveSession } from '../utils/storage';
+import { saveSession } from '../api/client';
 import type { PracticeSession, SessionQuestion } from '../types';
 
 interface Props {
@@ -71,9 +71,9 @@ export default function Practice({ classId, darkMode }: Props) {
     }]);
   }
 
-  function nextQuestion() {
+  async function nextQuestion() {
     if (currentIdx + 1 >= questions.length) {
-      finishSession(true);
+      await finishSession(true);
       return;
     }
     setCurrentIdx(i => i + 1);
@@ -81,7 +81,7 @@ export default function Practice({ classId, darkMode }: Props) {
     setShowSolution(false);
   }
 
-  function finishSession(completed: boolean) {
+  async function finishSession(completed: boolean) {
     const correctCount = sessionAnswers.filter(a => a.correct).length;
     const session: PracticeSession = {
       id: sessionId,
@@ -95,7 +95,7 @@ export default function Practice({ classId, darkMode }: Props) {
       score: correctCount,
       total: sessionAnswers.length,
     };
-    saveSession(session);
+    await saveSession(session);
     setStage('results');
   }
 

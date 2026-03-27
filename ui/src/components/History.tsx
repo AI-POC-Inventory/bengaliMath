@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { getSessions, getDoubtHistory } from '../utils/storage';
+import { useState, useEffect } from 'react';
+import { getSessions, getDoubts } from '../api/client';
 import { toBengaliNumber, toBengaliPercent, toBengaliDate } from '../utils/bengali';
+import type { PracticeSession, DoubtEntry } from '../types';
 
 interface Props {
   classId: number;
@@ -9,8 +10,13 @@ interface Props {
 
 export default function History({ classId, darkMode }: Props) {
   const [tab, setTab] = useState<'practice' | 'doubt'>('practice');
-  const sessions = getSessions().filter(s => s.classId === classId);
-  const doubts = getDoubtHistory().filter(d => d.classId === classId);
+  const [sessions, setSessions] = useState<PracticeSession[]>([]);
+  const [doubts, setDoubts] = useState<DoubtEntry[]>([]);
+
+  useEffect(() => {
+    getSessions(classId).then(setSessions).catch(() => setSessions([]));
+    getDoubts(classId).then(setDoubts).catch(() => setDoubts([]));
+  }, [classId]);
 
   const bg = darkMode ? '#0f172a' : '#f8fafc';
   const cardBg = darkMode ? '#1e293b' : '#ffffff';
