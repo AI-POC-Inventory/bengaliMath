@@ -6,7 +6,7 @@ interface Props {
 }
 
 const classes = [5, 6, 7, 8, 9, 10];
-const classNames = ['পঞ্চম', 'ষষ্ঠ', 'সপ্তম', 'অষ্টম', 'নবম', 'দশম'];
+const classNames = ['পঞ্চম1', 'ষষ্ঠ', 'সপ্তম', 'অষ্টম', 'নবম', 'দশম'];
 const classColors = [
   '#4f46e5', '#7c3aed', '#2563eb', '#059669', '#d97706', '#dc2626'
 ];

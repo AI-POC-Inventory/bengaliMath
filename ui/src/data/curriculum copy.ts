@@ -798,42 +798,37 @@ export const curriculum: ClassData[] = [
   },
 ];
 
-export async function getClassData(classId: number): Promise<ClassData | undefined> {
-  const res = await fetch(`http://127.0.0.1:5000/class/${classId}`);
-  console.log(res.json());
-  return res.json();
+export function getClassData(classId: number): ClassData | undefined {
+  return curriculum.find(c => c.id === classId);
 }
 
-export async function getChapter(classId: number, chapterId: string) {
-  const res = await fetch(
-    `http://127.0.0.1:5000/chapter?classId=${classId}&chapterId=${chapterId}`
-  );
-  console.log(res.json());
-  return res.json();
+export function getChapter(classId: number, chapterId: string) {
+  return getClassData(classId)?.chapters.find(ch => ch.id === chapterId);
 }
 
-export async function getTopic(classId: number, topicId: string) {
-  const res = await fetch(
-    `http://127.0.0.1:5000/topic?classId=${classId}&topicId=${topicId}`
-  );
-  console.log(res.json());
-
-  return res.json();
+export function getTopic(classId: number, topicId: string) {
+  const cls = getClassData(classId);
+  if (!cls) return undefined;
+  for (const ch of cls.chapters) {
+    const t = ch.topics.find(t => t.id === topicId);
+    if (t) return { topic: t, chapter: ch };
+  }
+  return undefined;
 }
 
-export async function getAllQuestions(
-  classId: number,
-  chapterId?: string,
-  topicId?: string,
-  difficulty?: string
-) {
-  let url = `http://127.0.0.1:5000/questions?classId=${classId}`;
-
-  if (chapterId) url += `&chapterId=${chapterId}`;
-  if (topicId) url += `&topicId=${topicId}`;
-  if (difficulty) url += `&difficulty=${difficulty}`;
-
-  const res = await fetch(url);
-  console.log(res.json());
-  return res.json();
+export function getAllQuestions(classId: number, chapterId?: string, topicId?: string, difficulty?: string) {
+  const cls = getClassData(classId);
+  if (!cls) return [];
+  const questions: Array<{ question: typeof cls.chapters[0]['topics'][0]['questions'][0], topicId: string, chapterId: string }> = [];
+  for (const ch of cls.chapters) {
+    if (chapterId && ch.id !== chapterId) continue;
+    for (const t of ch.topics) {
+      if (topicId && t.id !== topicId) continue;
+      for (const q of t.questions) {
+        if (difficulty && q.difficulty !== difficulty) continue;
+        questions.push({ question: q, topicId: t.id, chapterId: ch.id });
+      }
+    }
+  }
+  return questions;
 }

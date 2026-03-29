@@ -1,0 +1,122 @@
+{
+  "chapter": {
+    "number": 1,
+    "title": "অধ্যায় : 1",
+    "book": "গণিতপ্রভা",
+    "class": "সপ্তম শ্রেণি"
+  },
+  "example": {
+    "problem": "পরের মাসে উজ্জ্বলবাবু অফিস থেকে আরও কিছু টাকা পেলেন। তিনি এই টাকার 1/6 অংশ গ্রামের দাতব্য চিকিৎসালয়ে দান করলেন। তিনি 5,000 টাকা দাতব্য চিকিৎসালয়ে দান করেছিলেন। তাহলে পরের মাসে তিনি কত টাকা অফিস থেকে পেলেন হিসাব করি।",
+    "problem_english": "Ujjwal Babu received some more money from the office next month. He donated 1/6th of this money to the village charitable hospital. He had donated 5,000 Taka to the charitable hospital. So, let's calculate how much money he received from the office next month.",
+    "solution": {
+      "given": "উজ্জ্বলবাবুর টাকার 1/6 অংশ = 5,000 টাকা",
+      "steps": [
+        "ধরি, সম্পূর্ণ টাকা = 1 অংশ",
+        "উজ্জ্বলবাবুর টাকার 1/6 অংশ = 5,000 টাকা"
+      ],
+      "calculation": "(5,000 ÷ 1/6) টাকা = □ × □ টাকা = 30,000 টাকা",
+      "answer": "উজ্জ্বলবাবু পরের মাসে অফিস থেকে 30,000 টাকা পেয়েছিলেন।"
+    }
+  },
+  "exercises": {
+    "section": "করে দেখি – 1.1",
+    "questions": [
+      {
+        "number": 1,
+        "question": "সীতারা বেগমের ফলের দোকানে 60 টি পেয়ারা ছিল। তিনি তার মোট পেয়ারার 1/4 অংশ বিক্রি করলেন। তার কাছে আর কতগুলি পেয়ারা পড়ে রইল হিসাব করি।",
+        "question_english": "Sitara Begum had 60 guavas in her fruit shop. She sold 1/4th of her total guavas. Let's calculate how many guavas are left with her.",
+        "type": "word_problem",
+        "solution": {
+          "steps": [],
+          "calculation": "",
+          "formula_used": ""
+        },
+        "answer": ""
+      },
+      {
+        "number": 2,
+        "question": "মা আমাকে 60 টাকার 5/6 অংশ এবং দাদাকে 45 টাকার 7/9 অংশ দিয়েছেন। মা কাকে বেশি টাকা দিয়েছেন হিসাব করে দেখি।",
+        "question_english": "Mother gave me 5/6th of 60 Taka and gave my elder brother 7/9th of 45 Taka. Let's calculate who mother gave more money to.",
+        "type": "word_problem",
+        "solution": {
+          "steps": [],
+          "calculation": "",
+          "formula_used": ""
+        },
+        "answer": ""
+      },
+      {
+        "number": 3,
+        "question": "গণেশবাবু তিনদিনে একটি কাজের যথাক্রমে 3/14, 4/7 ও 1/21 অংশ শেষ করেছেন। তিনি তিনদিনে মোট কত অংশ কাজ শেষ করেছেন ও এখনও কত অংশ কাজ বাকি আছে হিসাব করি।",
+        "question_english": "Ganesh Babu completed 3/14, 4/7, and 1/21 parts of a work respectively in three days. Let's calculate what total part of the work he completed in three days and what part of the work is still remaining.",
+        "type": "word_problem",
+        "solution": {
+          "steps": [],
+          "calculation": "",
+          "formula_used": ""
+        },
+        "answer": ""
+      },
+      {
+        "number": 4,
+        "question": "একটি বাঁশের দৈর্ঘ্যের 1/3 অংশ লাল রং, 1/5 অংশ সবুজ রং ও বাকি 14 মিটার হলুদ রং দিয়েছি, বাঁশটি কত মিটার লম্বা হিসাব করি।",
+        "question_english": "1/3rd of a bamboo's length is colored red, 1/5th is colored green, and the remaining 14 meters are colored yellow. Let's calculate the total length of the bamboo in meters.",
+        "type": "word_problem",
+        "solution": {
+          "steps": [],
+          "calculation": "",
+          "formula_used": ""
+        },
+        "answer": ""
+      },
+      {
+        "number": 5,
+        "question": "একটি খাতার দাম 6.50 টাকা হলে 15 টি খাতার দাম কত হবে তা হিসাব করি।",
+        "question_english": "If the price of one notebook is 6.50 Taka, let's calculate the price of 15 notebooks.",
+        "type": "word_problem",
+        "solution": {
+          "steps": [],
+          "calculation": "",
+          "formula_used": ""
+        },
+        "answer": ""
+      },
+      {
+        "number": 6,
+        "question": "একটি বাক্সে 12টি টিনের প্যাকেট আছে। প্রতিটি প্যাকেটের ওজন 2.84 কিগ্রা। বাক্স এবং প্যাকেটগুলির মোট ওজন 36 কিগ্রা। হলে, হিসাব করে দেখি বাক্সটির ওজন কত হবে।",
+        "question_english": "There are 12 tin packets in a box. The weight of each packet is 2.84 kg. The total weight of the box and the packets is 36 kg. So, let's calculate the weight of the box.",
+        "type": "word_problem",
+        "solution": {
+          "steps": [],
+          "calculation": "",
+          "formula_used": ""
+        },
+        "answer": ""
+      },
+      {
+        "number": 7,
+        "question": "এক বস্তা চালের পরিমাণের 0.75 অংশের দাম 1800 টাকা হলে তার 0.15 অংশের দাম হিসাব করি।",
+        "question_english": "If the price of 0.75 part of a sack of rice is 1800 Taka, let's calculate the price of its 0.15 part.",
+        "type": "word_problem",
+        "solution": {
+          "steps": [],
+          "calculation": "",
+          "formula_used": ""
+        },
+        "answer": ""
+      },
+      {
+        "number": 8,
+        "question": "অনিতাদি তার জমির পরিমাণের অর্ধেকের 7/8 অংশ নিজের ভাইকে দিয়েছেন এবং বাকি জমি তিন ছেলেকে সমানভাগে ভাগ করে দিলেন। প্রত্যেক ছেলে কত অংশ জমি পেল তা একটি চিত্রের সাহায্যে দেখাই।",
+        "question_english": "Anitadi gave 7/8th of half of her land to her brother and divided the remaining land equally among her three sons. Let's show with the help of a diagram what part of the land each son received.",
+        "type": "word_problem",
+        "solution": {
+          "steps": [],
+          "calculation": "",
+          "formula_used": ""
+        },
+        "answer": ""
+      }
+    ]
+  }
+}
