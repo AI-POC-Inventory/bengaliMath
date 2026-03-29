@@ -10,7 +10,10 @@ const app = express();
 const PORT = 3001;
 
 // ── Database setup ────────────────────────────────────────────────────────────
-const db = new Database(join(__dirname, 'database.sqlite'));
+DB_PATH = "D:\\Sujit\\AiML\\AITech\\academy\\beangali-board\\bengaliMath\\database\\bengali_curriculam.db"
+
+// const db = new Database(join(__dirname, 'database.sqlite'));
+const db = new Database(DBPATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 

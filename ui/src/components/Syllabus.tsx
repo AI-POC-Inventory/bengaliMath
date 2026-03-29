@@ -9,6 +9,7 @@ interface Props {
 }
 
 export default function Syllabus({ classId, darkMode }: Props) {
+  console.log("Rendering Syllabus with classId:", classId, "and darkMode:", darkMode);
   const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
   const classData = getClassData(classId);
 
@@ -50,7 +51,9 @@ export default function Syllabus({ classId, darkMode }: Props) {
             📚 পাঠ্যক্রম
           </h1>
           <p style={{ color: subText, margin: '0.2rem 0 0', fontSize: '0.9rem' }}>
-            {classData.bengaliName} • {toBengaliNumber(classData.chapters.length)}টি অধ্যায়
+            <p style={{ color: subText, margin: '0.2rem 0 0', fontSize: '0.9rem' }}>
+              {classData.bengaliName} • {toBengaliNumber(classData?.chapters?.length ?? 0)}টি অধ্যায়
+            </p>
           </p>
         </div>
       </div>

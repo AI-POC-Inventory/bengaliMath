@@ -1,0 +1,92 @@
+[
+  {
+    "id": 8,
+    "name": "Class 8",
+    "bengaliName": "অষ্টম শ্রেণী",
+    "chapters": [
+      {
+        "id": "8-1",
+        "name": "সূচক ও ঘাত",
+        "description": "সূচকের নিয়মাবলী ও প্রয়োগ",
+        "topics": [
+          {
+            "id": "8-1-1",
+            "name": "সূচকের নিয়মাবলী",
+            "description": "সূচকের গুণ, ভাগ ও অন্যান্য নিয়ম",
+            "questions": [
+              {
+                "id": "8-1-1-1",
+                "type": "mcq",
+                "text": "a³ × a⁴ = ?",
+                "options": ["a⁷", "a¹²", "a¹", "a⁶"],
+                "answer": 0,
+                "solution": "a³ × a⁴ = a^(৩+৪) = a⁷",
+                "difficulty": "easy"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": 9,
+    "name": "Class 9",
+    "bengaliName": "নবম শ্রেণী",
+    "chapters": [
+      {
+        "id": "9-1",
+        "name": "বাস্তব সংখ্যা",
+        "description": "মূলদ ও অমূলদ সংখ্যা",
+        "topics": [
+          {
+            "id": "9-1-1",
+            "name": "মূলদ ও অমূলদ সংখ্যা",
+            "description": "সংখ্যার শ্রেণিবিভাগ",
+            "questions": [
+              {
+                "id": "9-1-1-1",
+                "type": "mcq",
+                "text": "নিচের কোনটি অমূলদ সংখ্যা?",
+                "options": ["√২", "√৪", "√৯", "√১৬"],
+                "answer": 0,
+                "solution": "√২ অমূলদ সংখ্যা",
+                "difficulty": "easy"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": 10,
+    "name": "Class 10",
+    "bengaliName": "দশম শ্রেণী",
+    "chapters": [
+      {
+        "id": "10-1",
+        "name": "দ্বিঘাত সমীকরণ",
+        "description": "দ্বিঘাত সমীকরণের সমাধান",
+        "topics": [
+          {
+            "id": "10-1-1",
+            "name": "শ্রীধরাচার্যের সূত্র",
+            "description": "দ্বিঘাত সমীকরণের সাধারণ সমাধান",
+            "questions": [
+              {
+                "id": "10-1-1-1",
+                "type": "mcq",
+                "text": "x² - 5x + 6 = 0 এর মূল কত?",
+                "options": ["2,3", "-2,-3", "1,6", "-1,-6"],
+                "answer": 0,
+                "solution": "(x-2)(x-3)=0 → x=2,3",
+                "difficulty": "easy"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]

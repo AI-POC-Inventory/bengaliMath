@@ -4,7 +4,7 @@ import json
 # Load your TS file (convert to JSON first)
 # Remove "export const curriculum =" and convert to valid JSON
 
-with open("mock.json", "r", encoding="utf-8") as f:
+with open("all_classes.json", "r", encoding="utf-8") as f:
     data = json.load(f)
 
 conn = sqlite3.connect("D:\\Sujit\\AiML\\AITech\\academy\\beangali-board\\bengaliMath\\database\\bengali_curriculam.db")
@@ -18,6 +18,7 @@ print("Tables:", tables)
 
 
 for cls in data:
+    print(f"Inserting class: {cls['name']} (ID: {cls['id']})")
     cursor.execute(
         "INSERT INTO classes VALUES (?, ?, ?)",
         (cls["id"], cls["name"], cls["bengaliName"])

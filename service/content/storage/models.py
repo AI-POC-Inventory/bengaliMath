@@ -1,4 +1,4 @@
-from .db import get_connection
+from db  import get_connection
 import json
 
 class ChapterModel:
@@ -20,6 +20,7 @@ class ChapterModel:
 
         chapter_id = cur.lastrowid
         conn.commit()
+        print(f"Inserted chapter with ID: {chapter_id}")
         return chapter_id
 
 class ExerciseModel:

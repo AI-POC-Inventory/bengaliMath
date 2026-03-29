@@ -4,18 +4,90 @@ def get_class_data(class_id: int):
     conn = get_conn()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT id, name, bengali_name FROM classes WHERE id=?", (class_id,))
-    row = cursor.fetchone()
-    conn.close()
+    # 🔹 Get class
+    cursor.execute(
+        "SELECT id, name, bengali_name FROM classes WHERE id=?",
+        (class_id,)
+    )
+    cls = cursor.fetchone()
 
-    if not row:
+    if not cls:
+        conn.close()
         return None
 
-    return {
-        "id": row[0],
-        "name": row[1],
-        "bengaliName": row[2]
+    class_data = {
+        "id": cls[0],
+        "name": cls[1],
+        "bengaliName": cls[2],
+        "chapters": []
     }
+
+    # 🔹 Get chapters
+    cursor.execute(
+        "SELECT id, name, description FROM chapters WHERE class_id=?",
+        (class_id,)
+    )
+    chapters = cursor.fetchall()
+
+    for ch in chapters:
+        chapter_data = {
+            "id": ch[0],
+            "name": ch[1],
+            "description": ch[2],
+            "topics": []
+        }
+
+        # 🔹 Get topics
+        cursor.execute(
+            "SELECT id, name, description FROM topics WHERE chapter_id=?",
+            (ch[0],)
+        )
+        topics = cursor.fetchall()
+
+        for t in topics:
+            topic_data = {
+                "id": t[0],
+                "name": t[1],
+                "description": t[2],
+                "questions": []
+            }
+
+            # 🔹 Get questions
+            cursor.execute(
+                """SELECT id, type, text, answer, solution, difficulty 
+                   FROM questions WHERE topic_id=?""",
+                (t[0],)
+            )
+            questions = cursor.fetchall()
+
+            for q in questions:
+                question_data = {
+                    "id": q[0],
+                    "type": q[1],
+                    "text": q[2],
+                    "answer": q[3],
+                    "solution": q[4],
+                    "difficulty": q[5]
+                }
+
+                # 🔹 Get options (for MCQ)
+                cursor.execute(
+                    "SELECT option_text FROM options WHERE question_id=?",
+                    (q[0],)
+                )
+                opts = cursor.fetchall()
+
+                if opts:
+                    question_data["options"] = [o[0] for o in opts]
+
+                topic_data["questions"].append(question_data)
+
+            chapter_data["topics"].append(topic_data)
+
+        class_data["chapters"].append(chapter_data)
+
+    conn.close()
+    return class_data
 
 def get_chapter(class_id: int, chapter_id: str):
     conn = get_conn()

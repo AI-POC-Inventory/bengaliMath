@@ -1,8 +1,9 @@
 import json
-from .models import ChapterModel, ExerciseModel
+from models.chapter import ChapterModel
+from models.exercise import ExerciseModel   
 
 def seed_mock():
-    with open("mock.json", "r", encoding="utf-8") as f:
+    with open("mock_6.json", "r", encoding="utf-8") as f:
         data = json.load(f)
 
     chapter_id = ChapterModel.insert(data)

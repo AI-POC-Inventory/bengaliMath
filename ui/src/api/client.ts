@@ -1,6 +1,8 @@
 import type { PracticeSession, DoubtEntry } from '../types';
 
-const BASE = '/api';
+const BASE = 'http://localhost:3001/api';
+
+// ── Internal helper ───────────────────────────────────────────────────────────
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, options);
@@ -12,6 +14,9 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 // ── Preferences ───────────────────────────────────────────────────────────────
+// Flask routes: GET /api/preferences  →  get_preferences()
+//               PUT /api/preferences  →  set_preference()
+
 export interface Preferences {
   classId: number | null;
   theme: 'light' | 'dark';
@@ -19,6 +24,7 @@ export interface Preferences {
 }
 
 export function getPreferences(): Promise<Preferences> {
+  console.log("Fetching preferences from server...");
   return fetchJSON<Preferences>(`${BASE}/preferences`);
 }
 
@@ -31,6 +37,10 @@ export function setPreference(key: string, value: string): Promise<void> {
 }
 
 // ── Sessions ──────────────────────────────────────────────────────────────────
+// Flask routes: GET    /api/sessions          →  getSessions()
+//               POST   /api/sessions          →  saveSession()
+//               DELETE /api/sessions/<id>     →  deleteSession()
+
 export function getSessions(classId: number): Promise<PracticeSession[]> {
   return fetchJSON<PracticeSession[]>(`${BASE}/sessions?classId=${classId}`);
 }
@@ -48,6 +58,10 @@ export function deleteSession(id: string): Promise<void> {
 }
 
 // ── Doubts ────────────────────────────────────────────────────────────────────
+// Flask routes: GET    /api/doubts            →  getDoubts()
+//               POST   /api/doubts            →  saveDoubt()
+//               DELETE /api/doubts/<id>       →  deleteDoubt()
+
 export function getDoubts(classId: number): Promise<DoubtEntry[]> {
   return fetchJSON<DoubtEntry[]>(`${BASE}/doubts?classId=${classId}`);
 }
@@ -65,6 +79,8 @@ export function deleteDoubt(id: string): Promise<void> {
 }
 
 // ── Anthropic streaming proxy ─────────────────────────────────────────────────
+// Flask route:  POST /api/doubts/ask          →  askDoubt()
+
 export async function* askDoubt(
   classId: number,
   question: string,
