@@ -1,7 +1,7 @@
-import { useState } from 'react';
 import { getClassData } from '../data/curriculum';
 import { toBengaliNumber } from '../utils/bengali';
-import type { Chapter, Topic } from '../types';
+import type {ClassData,Chapter, Topic } from '../types';
+import { useEffect, useState } from 'react';
 
 interface Props {
   classId: number;
@@ -10,9 +10,41 @@ interface Props {
 
 export default function Syllabus({ classId, darkMode }: Props) {
   console.log("Rendering Syllabus with classId:", classId, "and darkMode:", darkMode);
+  const [classData, setClassData] = useState<ClassData | null>(null);
   const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
-  const classData = getClassData(classId);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const data = await getClassData(classId);
+        setClassData(data ?? null);
+
+      } catch (err) {
+        console.error("Error loading class data:", err);
+        setError("Failed to load data");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadData();
+  }, [classId]);
+  if (loading) {
+    return <div style={{ padding: '2rem' }}>Loading syllabus...</div>;
+  }
+
+  if (error) {
+    return <div style={{ padding: '2rem', color: 'red' }}>{error}</div>;
+  }
+
+  if (!classData) {
+    return <div style={{ padding: '2rem' }}>No data found</div>;
+  }
   const bg = darkMode ? '#0f172a' : '#f8fafc';
   const cardBg = darkMode ? '#1e293b' : '#ffffff';
   const text = darkMode ? '#e2e8f0' : '#1e293b';
@@ -21,7 +53,6 @@ export default function Syllabus({ classId, darkMode }: Props) {
   const accent = '#3b82f6';
 
   if (!classData) return null;
-
   return (
     <div style={{ padding: '2rem', minHeight: '100%', background: bg, fontFamily: "'Hind Siliguri', 'Noto Sans Bengali', sans-serif" }}>
       {/* Header */}

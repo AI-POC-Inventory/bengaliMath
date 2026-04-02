@@ -3,6 +3,8 @@ import { getClassData, getAllQuestions } from '../data/curriculum';
 import { toBengaliNumber, toBengaliPercent, bengaliOptionLabels } from '../utils/bengali';
 import { saveSession } from '../api/client';
 import type { PracticeSession, SessionQuestion } from '../types';
+import type {ClassData,Chapter, Topic } from '../types';
+import { useEffect } from 'react';
 
 interface Props {
   classId: number;
@@ -19,7 +21,6 @@ interface QuizQuestion {
 
 export default function Practice({ classId, darkMode }: Props) {
   const [stage, setStage] = useState<Stage>('setup');
-  const [selectedChapter, setSelectedChapter] = useState('');
   const [selectedTopic, setSelectedTopic] = useState('');
   const [selectedDifficulty, setSelectedDifficulty] = useState('');
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
@@ -28,8 +29,40 @@ export default function Practice({ classId, darkMode }: Props) {
   const [sessionAnswers, setSessionAnswers] = useState<SessionQuestion[]>([]);
   const [showSolution, setShowSolution] = useState(false);
   const [sessionId] = useState(() => Date.now().toString());
-
-  const classData = getClassData(classId);
+  const [classData, setClassData] = useState<ClassData | null>(null);
+  const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+      const loadData = async () => {
+        try {
+          setLoading(true);
+          setError(null);
+  
+          const data = await getClassData(classId);
+          setClassData(data ?? null);
+  
+        } catch (err) {
+          console.error("Error loading class data:", err);
+          setError("Failed to load data");
+        } finally {
+          setLoading(false);
+        }
+      };
+  
+      loadData();
+    }, [classId]);
+    if (loading) {
+      return <div style={{ padding: '2rem' }}>Loading syllabus...</div>;
+    }
+  
+    if (error) {
+      return <div style={{ padding: '2rem', color: 'red' }}>{error}</div>;
+    }
+  
+    if (!classData) {
+      return <div style={{ padding: '2rem' }}>No data found</div>;
+    }
 
   const bg = darkMode ? '#0f172a' : '#f8fafc';
   const cardBg = darkMode ? '#1e293b' : '#ffffff';

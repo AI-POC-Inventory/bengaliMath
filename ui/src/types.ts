@@ -26,7 +26,7 @@ export interface ClassData {
   id: number;
   name: string;
   bengaliName: string;
-  chapters: Chapter[];
+  b : Chapter[];
 }
 
 export interface SessionQuestion {

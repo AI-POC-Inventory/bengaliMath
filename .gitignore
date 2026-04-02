@@ -21,3 +21,5 @@ ui/.vite/
 venv/
 __pycache__/
 *.pyc
+*/*.db-wal
+*/*.db-shm
