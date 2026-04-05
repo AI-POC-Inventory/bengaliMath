@@ -78,6 +78,61 @@ export function deleteDoubt(id: string): Promise<void> {
   return fetchJSON(`${BASE}/doubts/${id}`, { method: 'DELETE' });
 }
 
+// ── Admin: Curriculum CRUD ────────────────────────────────────────────────────
+
+export interface AdminClass    { id: number; name: string; bengaliName: string }
+export interface AdminChapter  { id: string; classId: number; name: string; description: string }
+export interface AdminTopic    { id: string; chapterId: string; name: string; description: string }
+export interface AdminQuestion {
+  id: string; topicId: string; type: 'mcq' | 'short';
+  text: string; answer: string; solution: string;
+  difficulty: 'easy' | 'medium' | 'hard'; options: string[];
+}
+
+// Classes
+export const getAdminClasses = () => fetchJSON<AdminClass[]>(`${BASE}/admin/classes`);
+export const createAdminClass = (c: AdminClass) =>
+  fetchJSON(`${BASE}/admin/classes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) });
+export const updateAdminClass = (id: number, c: Omit<AdminClass, 'id'>) =>
+  fetchJSON(`${BASE}/admin/classes/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) });
+export const deleteAdminClass = (id: number) =>
+  fetchJSON(`${BASE}/admin/classes/${id}`, { method: 'DELETE' });
+
+// Chapters
+export const getAdminChapters = (classId: number) =>
+  fetchJSON<AdminChapter[]>(`${BASE}/admin/chapters?classId=${classId}`);
+export const createAdminChapter = (c: AdminChapter) =>
+  fetchJSON(`${BASE}/admin/chapters`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) });
+export const updateAdminChapter = (id: string, c: Omit<AdminChapter, 'id' | 'classId'>) =>
+  fetchJSON(`${BASE}/admin/chapters/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(c) });
+export const deleteAdminChapter = (id: string) =>
+  fetchJSON(`${BASE}/admin/chapters/${id}`, { method: 'DELETE' });
+
+// Topics
+export const getAdminTopics = (chapterId: string) =>
+  fetchJSON<AdminTopic[]>(`${BASE}/admin/topics?chapterId=${chapterId}`);
+export const createAdminTopic = (t: AdminTopic) =>
+  fetchJSON(`${BASE}/admin/topics`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t) });
+export const updateAdminTopic = (id: string, t: Omit<AdminTopic, 'id' | 'chapterId'>) =>
+  fetchJSON(`${BASE}/admin/topics/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t) });
+export const deleteAdminTopic = (id: string) =>
+  fetchJSON(`${BASE}/admin/topics/${id}`, { method: 'DELETE' });
+
+// Questions
+export const getAdminQuestions = (filter: { topicId?: string; chapterId?: string; classId?: number }) => {
+  const params = new URLSearchParams();
+  if (filter.topicId)   params.set('topicId', filter.topicId);
+  if (filter.chapterId) params.set('chapterId', filter.chapterId);
+  if (filter.classId)   params.set('classId', String(filter.classId));
+  return fetchJSON<AdminQuestion[]>(`${BASE}/admin/questions?${params}`);
+};
+export const createAdminQuestion = (q: AdminQuestion) =>
+  fetchJSON(`${BASE}/admin/questions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(q) });
+export const updateAdminQuestion = (id: string, q: Omit<AdminQuestion, 'id' | 'topicId'>) =>
+  fetchJSON(`${BASE}/admin/questions/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(q) });
+export const deleteAdminQuestion = (id: string) =>
+  fetchJSON(`${BASE}/admin/questions/${id}`, { method: 'DELETE' });
+
 // ── Anthropic streaming proxy ─────────────────────────────────────────────────
 // Flask route:  POST /api/doubts/ask          →  askDoubt()
 

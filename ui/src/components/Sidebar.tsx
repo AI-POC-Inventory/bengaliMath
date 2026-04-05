@@ -16,6 +16,7 @@ const navItems: Array<{ id: NavSection; label: string; icon: string }> = [
   { id: 'doubt', label: 'সন্দেহ সমাধান', icon: '🤖' },
   { id: 'progress', label: 'অগ্রগতি', icon: '📊' },
   { id: 'history', label: 'ইতিহাস', icon: '🕐' },
+  { id: 'admin', label: 'প্রশাসন', icon: '⚙️' },
 ];
 
 export default function Sidebar({ selectedClass, activeSection, onSectionChange, onChangeClass, darkMode, onToggleDarkMode }: Props) {

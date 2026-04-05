@@ -10,10 +10,9 @@ const app = express();
 const PORT = 3001;
 
 // ── Database setup ────────────────────────────────────────────────────────────
-DB_PATH = "D:\\Sujit\\AiML\\AITech\\academy\\beangali-board\\bengaliMath\\database\\bengali_curriculam.db"
+const DB_PATH = process.env.DB_PATH ?? join(__dirname, '..', 'database', 'bengali_curriculam.db');
 
-// const db = new Database(join(__dirname, 'database.sqlite'));
-const db = new Database(DBPATH);
+const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
@@ -210,6 +209,154 @@ app.post('/api/doubts/ask', async (req, res) => {
   }
 
   res.end();
+});
+
+// ── Admin: Classes ────────────────────────────────────────────────────────────
+app.get('/api/admin/classes', (_req, res) => {
+  const rows = db.prepare('SELECT * FROM classes ORDER BY id').all();
+  res.json(rows.map(r => ({ id: r.id, name: r.name, bengaliName: r.bengali_name })));
+});
+
+app.post('/api/admin/classes', (req, res) => {
+  const { id, name, bengaliName } = req.body;
+  db.prepare('INSERT OR REPLACE INTO classes (id, name, bengali_name) VALUES (?, ?, ?)').run(id, name, bengaliName);
+  res.json({ ok: true });
+});
+
+app.put('/api/admin/classes/:id', (req, res) => {
+  const { name, bengaliName } = req.body;
+  db.prepare('UPDATE classes SET name=?, bengali_name=? WHERE id=?').run(name, bengaliName, parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/classes/:id', (req, res) => {
+  db.prepare('DELETE FROM classes WHERE id=?').run(parseInt(req.params.id));
+  res.json({ ok: true });
+});
+
+// ── Admin: Chapters ───────────────────────────────────────────────────────────
+app.get('/api/admin/chapters', (req, res) => {
+  const classId = req.query.classId ? parseInt(req.query.classId) : null;
+  const rows = classId
+    ? db.prepare('SELECT * FROM chapters WHERE class_id=? ORDER BY id').all(classId)
+    : db.prepare('SELECT * FROM chapters ORDER BY id').all();
+  res.json(rows.map(r => ({ id: r.id, classId: r.class_id, name: r.name, description: r.description })));
+});
+
+app.post('/api/admin/chapters', (req, res) => {
+  const { id, classId, name, description } = req.body;
+  db.prepare('INSERT OR REPLACE INTO chapters (id, class_id, name, description) VALUES (?, ?, ?, ?)').run(id, classId, name, description ?? '');
+  res.json({ ok: true });
+});
+
+app.put('/api/admin/chapters/:id', (req, res) => {
+  const { name, description } = req.body;
+  db.prepare('UPDATE chapters SET name=?, description=? WHERE id=?').run(name, description ?? '', req.params.id);
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/chapters/:id', (req, res) => {
+  db.prepare('DELETE FROM chapters WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ── Admin: Topics ─────────────────────────────────────────────────────────────
+app.get('/api/admin/topics', (req, res) => {
+  const chapterId = req.query.chapterId ?? null;
+  const rows = chapterId
+    ? db.prepare('SELECT * FROM topics WHERE chapter_id=? ORDER BY id').all(chapterId)
+    : db.prepare('SELECT * FROM topics ORDER BY id').all();
+  res.json(rows.map(r => ({ id: r.id, chapterId: r.chapter_id, name: r.name, description: r.description })));
+});
+
+app.post('/api/admin/topics', (req, res) => {
+  const { id, chapterId, name, description } = req.body;
+  db.prepare('INSERT OR REPLACE INTO topics (id, chapter_id, name, description) VALUES (?, ?, ?, ?)').run(id, chapterId, name, description ?? '');
+  res.json({ ok: true });
+});
+
+app.put('/api/admin/topics/:id', (req, res) => {
+  const { name, description } = req.body;
+  db.prepare('UPDATE topics SET name=?, description=? WHERE id=?').run(name, description ?? '', req.params.id);
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/topics/:id', (req, res) => {
+  db.prepare('DELETE FROM topics WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ── Admin: Questions ──────────────────────────────────────────────────────────
+app.get('/api/admin/questions', (req, res) => {
+  const { topicId, chapterId, classId } = req.query;
+  let stmt, params;
+
+  if (topicId) {
+    stmt = `SELECT q.*, GROUP_CONCAT(o.option_text, '||') as options_raw
+            FROM questions q LEFT JOIN options o ON o.question_id=q.id
+            WHERE q.topic_id=? GROUP BY q.id ORDER BY q.id`;
+    params = [topicId];
+  } else if (chapterId) {
+    stmt = `SELECT q.*, GROUP_CONCAT(o.option_text, '||') as options_raw
+            FROM questions q JOIN topics t ON q.topic_id=t.id
+            LEFT JOIN options o ON o.question_id=q.id
+            WHERE t.chapter_id=? GROUP BY q.id ORDER BY q.id`;
+    params = [chapterId];
+  } else if (classId) {
+    stmt = `SELECT q.*, GROUP_CONCAT(o.option_text, '||') as options_raw
+            FROM questions q JOIN topics t ON q.topic_id=t.id
+            JOIN chapters c ON t.chapter_id=c.id
+            LEFT JOIN options o ON o.question_id=q.id
+            WHERE c.class_id=? GROUP BY q.id ORDER BY q.id`;
+    params = [parseInt(classId)];
+  } else {
+    stmt = `SELECT q.*, GROUP_CONCAT(o.option_text, '||') as options_raw
+            FROM questions q LEFT JOIN options o ON o.question_id=q.id
+            GROUP BY q.id ORDER BY q.id`;
+    params = [];
+  }
+
+  const rows = db.prepare(stmt).all(...params);
+  res.json(rows.map(r => ({
+    id:         r.id,
+    topicId:    r.topic_id,
+    type:       r.type,
+    text:       r.text,
+    answer:     r.answer,
+    solution:   r.solution,
+    difficulty: r.difficulty,
+    options:    r.options_raw ? r.options_raw.split('||') : [],
+  })));
+});
+
+app.post('/api/admin/questions', (req, res) => {
+  const { id, topicId, type, text, answer, solution, difficulty, options } = req.body;
+  db.prepare(`INSERT OR REPLACE INTO questions (id, topic_id, type, text, answer, solution, difficulty)
+              VALUES (?, ?, ?, ?, ?, ?, ?)`).run(id, topicId, type, text, String(answer), solution, difficulty);
+  db.prepare('DELETE FROM options WHERE question_id=?').run(id);
+  if (type === 'mcq' && Array.isArray(options)) {
+    const ins = db.prepare('INSERT INTO options (question_id, option_text, is_correct) VALUES (?, ?, ?)');
+    options.forEach((opt, i) => ins.run(id, opt, i === parseInt(answer) ? 1 : 0));
+  }
+  res.json({ ok: true });
+});
+
+app.put('/api/admin/questions/:id', (req, res) => {
+  const { type, text, answer, solution, difficulty, options } = req.body;
+  db.prepare(`UPDATE questions SET type=?, text=?, answer=?, solution=?, difficulty=? WHERE id=?`)
+    .run(type, text, String(answer), solution, difficulty, req.params.id);
+  db.prepare('DELETE FROM options WHERE question_id=?').run(req.params.id);
+  if (type === 'mcq' && Array.isArray(options)) {
+    const ins = db.prepare('INSERT INTO options (question_id, option_text, is_correct) VALUES (?, ?, ?)');
+    options.forEach((opt, i) => ins.run(req.params.id, opt, i === parseInt(answer) ? 1 : 0));
+  }
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/questions/:id', (req, res) => {
+  db.prepare('DELETE FROM options WHERE question_id=?').run(req.params.id);
+  db.prepare('DELETE FROM questions WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
