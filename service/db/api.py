@@ -11,7 +11,8 @@ load_dotenv()
 
 app = Flask(__name__)
 
-DB_PATH = os.getenv("DB_PATH", "database/bengali_curriculam.db")
+_dir = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.getenv("DB_PATH", os.path.join(_dir, "..", "..", "database", "bengali_curriculam.db"))
 CORS(app, origins=["http://localhost:5173"])
 print(f"Using database at: {DB_PATH}")
 # ── DB helpers ─────────────────────────────────────────────────────────────────
@@ -290,4 +291,4 @@ def ask_doubt():
 # ── Start ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    app.run(debug=True, port=3001)
+    app.run(debug=True, port=3002)

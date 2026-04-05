@@ -4,6 +4,12 @@ import Database from 'better-sqlite3';
 import Anthropic from '@anthropic-ai/sdk';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import multer from 'multer';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import fs from 'fs';
+
+const execAsync = promisify(exec);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -166,6 +172,156 @@ app.post('/api/doubts', (req, res) => {
 app.delete('/api/doubts/:id', (req, res) => {
   db.prepare('DELETE FROM doubts WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
+});
+
+// ── Curriculum Reading Endpoints ──────────────────────────────────────────────
+app.get('/class/:classId', (req, res) => {
+  const classId = parseInt(req.params.classId);
+
+  // Get class info
+  const cls = db.prepare('SELECT id, name, bengali_name FROM classes WHERE id = ?').get(classId);
+  if (!cls) {
+    return res.status(404).json({ error: 'Class not found' });
+  }
+
+  const classData = {
+    id: cls.id,
+    name: cls.name,
+    bengaliName: cls.bengali_name,
+    chapters: []
+  };
+
+  // Get chapters for this class
+  const chapters = db.prepare('SELECT id, name, description FROM chapters WHERE class_id = ?').all(classId);
+
+  for (const chapter of chapters) {
+    const chapterData = {
+      id: chapter.id,
+      name: chapter.name,
+      description: chapter.description,
+      topics: []
+    };
+
+    // Get topics for this chapter
+    const topics = db.prepare('SELECT id, name, description FROM topics WHERE chapter_id = ?').all(chapter.id);
+
+    for (const topic of topics) {
+      const topicData = {
+        id: topic.id,
+        name: topic.name,
+        description: topic.description,
+        questions: []
+      };
+
+      // Get questions for this topic
+      const questions = db.prepare('SELECT id, type, text, answer, solution, difficulty FROM questions WHERE topic_id = ?').all(topic.id);
+
+      for (const question of questions) {
+        const questionData = {
+          id: question.id,
+          type: question.type,
+          text: question.text,
+          answer: question.answer,
+          solution: question.solution,
+          difficulty: question.difficulty
+        };
+
+        // Get options for MCQ
+        const options = db.prepare('SELECT option_text FROM options WHERE question_id = ? ORDER BY id').all(question.id);
+        if (options.length > 0) {
+          questionData.options = options.map(o => o.option_text);
+        }
+
+        topicData.questions.push(questionData);
+      }
+
+      chapterData.topics.push(topicData);
+    }
+
+    classData.chapters.push(chapterData);
+  }
+
+  res.json(classData);
+});
+
+app.get('/chapter', (req, res) => {
+  const classId = parseInt(req.query.classId);
+  const chapterId = req.query.chapterId;
+
+  const chapter = db.prepare('SELECT * FROM chapters WHERE id = ? AND class_id = ?').get(chapterId, classId);
+
+  if (!chapter) {
+    return res.status(404).json({ error: 'Chapter not found' });
+  }
+
+  res.json(chapter);
+});
+
+app.get('/topic', (req, res) => {
+  const classId = parseInt(req.query.classId);
+  const topicId = req.query.topicId;
+
+  const topic = db.prepare(`
+    SELECT t.*, c.id as chapter_id
+    FROM topics t
+    JOIN chapters c ON t.chapter_id = c.id
+    WHERE t.id = ? AND c.class_id = ?
+  `).get(topicId, classId);
+
+  if (!topic) {
+    return res.status(404).json({ error: 'Topic not found' });
+  }
+
+  res.json(topic);
+});
+
+app.get('/questions', (req, res) => {
+  const classId = parseInt(req.query.classId);
+  const chapterId = req.query.chapterId;
+  const topicId = req.query.topicId;
+  const difficulty = req.query.difficulty;
+
+  let query = `
+    SELECT q.*, t.id as topic_id, c.id as chapter_id
+    FROM questions q
+    JOIN topics t ON q.topic_id = t.id
+    JOIN chapters c ON t.chapter_id = c.id
+    WHERE c.class_id = ?
+  `;
+
+  const params = [classId];
+
+  if (chapterId) {
+    query += ' AND c.id = ?';
+    params.push(chapterId);
+  }
+
+  if (topicId) {
+    query += ' AND t.id = ?';
+    params.push(topicId);
+  }
+
+  if (difficulty) {
+    query += ' AND q.difficulty = ?';
+    params.push(difficulty);
+  }
+
+  const rows = db.prepare(query).all(...params);
+
+  const result = rows.map(row => ({
+    question: {
+      id: row.id,
+      type: row.type,
+      text: row.text,
+      answer: row.answer,
+      solution: row.solution,
+      difficulty: row.difficulty
+    },
+    topicId: row.topic_id,
+    chapterId: row.chapter_id
+  }));
+
+  res.json(result);
 });
 
 // ── Anthropic proxy (streaming) ───────────────────────────────────────────────
@@ -357,6 +513,136 @@ app.delete('/api/admin/questions/:id', (req, res) => {
   db.prepare('DELETE FROM options WHERE question_id=?').run(req.params.id);
   db.prepare('DELETE FROM questions WHERE id=?').run(req.params.id);
   res.json({ ok: true });
+});
+
+// ── PDF Upload and Processing ─────────────────────────────────────────────────
+const upload = multer({
+  dest: join(__dirname, '..', 'uploads'),
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF files are allowed'));
+    }
+  }
+});
+
+// Create uploads directory if it doesn't exist
+const uploadsDir = join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+app.post('/api/admin/upload-pdf', upload.single('pdf'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No PDF file uploaded' });
+    }
+
+    const { classId, chapterId, topicId, provider } = req.body;
+
+    if (!classId || !chapterId || !topicId) {
+      return res.status(400).json({
+        error: 'Missing required fields: classId, chapterId, topicId'
+      });
+    }
+
+    const pdfPath = req.file.path;
+    const processorPath = join(__dirname, '..', 'service', 'content', 'extractor', 'process_pdf.py');
+
+    // Build command
+    const providerArg = provider ? ` ${provider}` : '';
+    const command = `python "${processorPath}" "${pdfPath}" ${classId} ${chapterId} ${topicId}${providerArg}`;
+
+    console.log('Executing:', command);
+
+    // Execute Python script
+    const { stdout, stderr } = await execAsync(command);
+
+    if (stderr && !stdout) {
+      console.error('PDF Processing Error:', stderr);
+      return res.status(500).json({
+        error: 'PDF processing failed',
+        details: stderr
+      });
+    }
+
+    // Parse result
+    const result = JSON.parse(stdout);
+
+    if (!result.success) {
+      return res.status(500).json({
+        error: result.error || 'PDF processing failed'
+      });
+    }
+
+    // Save questions to database
+    const insertQuestion = db.prepare(`
+      INSERT INTO questions (id, topic_id, type, text, answer, solution, difficulty)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const insertOption = db.prepare(`
+      INSERT INTO options (question_id, option_text, is_correct)
+      VALUES (?, ?, ?)
+    `);
+
+    let savedCount = 0;
+    for (const question of result.questions) {
+      try {
+        insertQuestion.run(
+          question.id,
+          question.topic_id,
+          question.type,
+          question.text,
+          question.answer,
+          question.solution,
+          question.difficulty
+        );
+
+        // Insert options if MCQ
+        if (question.type === 'mcq' && question.options) {
+          question.options.forEach((optionText, index) => {
+            insertOption.run(
+              question.id,
+              optionText,
+              index === parseInt(question.answer) ? 1 : 0
+            );
+          });
+        }
+
+        savedCount++;
+      } catch (dbError) {
+        console.error('Error saving question:', question.id, dbError.message);
+        // Continue with other questions
+      }
+    }
+
+    // Clean up uploaded file
+    fs.unlinkSync(pdfPath);
+
+    res.json({
+      success: true,
+      message: `Successfully processed PDF and saved ${savedCount} questions`,
+      extracted: result.count,
+      saved: savedCount,
+      extractedData: result.extracted_data
+    });
+
+  } catch (error) {
+    console.error('PDF Upload Error:', error);
+
+    // Clean up file if it exists
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+
+    res.status(500).json({
+      error: 'Failed to process PDF',
+      details: error.message
+    });
+  }
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
