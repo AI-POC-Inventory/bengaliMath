@@ -76,9 +76,8 @@ export default function Practice({ classId, darkMode }: Props) {
     : [];
 
   async function startPractice() {
-  console.log('Starting practice with filters:', { selectedChapter, selectedTopic, selectedDifficulty });
-
-  const pool = await getAllQuestions(
+    console.log('Starting practice with filters:', { selectedChapter, selectedTopic, selectedDifficulty });
+    const pool = await getAllQuestions(
     classId,
     selectedChapter || undefined,
     selectedTopic || undefined,
