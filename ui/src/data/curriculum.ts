@@ -838,6 +838,10 @@ export async function getAllQuestions(
   if (difficulty) url += `&difficulty=${difficulty}`;
 
   const res = await fetch(url);
-  console.log(res.json());
-  return res.json();
+
+  const data = await res.json();   // ✅ read ONLY once
+
+  console.log(data);               // ✅ safe logging
+
+  return data;                     // ✅ return parsed data
 }
