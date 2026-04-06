@@ -802,7 +802,7 @@ export async function getClassData(classId: number): Promise<ClassData | undefin
   console.log("getClassData called with classId:", classId);
   console.log(classId);
 
-  const res = await fetch(`http://127.0.0.1:3001/class/${classId}`);
+  const res = await fetch(`http://localhost:3002/class/${classId}`);
   const classDataResult = await res.json();
   console.log(classDataResult);
   return classDataResult;
@@ -810,7 +810,7 @@ export async function getClassData(classId: number): Promise<ClassData | undefin
 
 export async function getChapter(classId: number, chapterId: string) {
   const res = await fetch(
-    `http://127.0.0.1:3001/chapter?classId=${classId}&chapterId=${chapterId}`
+    `http://localhost:3002/chapter?classId=${classId}&chapterId=${chapterId}`
   );
   console.log(res.json());
   return res.json();
@@ -818,7 +818,7 @@ export async function getChapter(classId: number, chapterId: string) {
 
 export async function getTopic(classId: number, topicId: string) {
   const res = await fetch(
-    `http://127.0.0.1:3001/topic?classId=${classId}&topicId=${topicId}`
+    `http://localhost:3002/topic?classId=${classId}&topicId=${topicId}`
   );
   console.log(res.json());
 
@@ -831,7 +831,7 @@ export async function getAllQuestions(
   topicId?: string,
   difficulty?: string
 ) {
-  let url = `http://127.0.0.1:3001/questions?classId=${classId}`;
+  let url = `http://127.0.0.1:3002/questions?classId=${classId}`;
 
   if (chapterId) url += `&chapterId=${chapterId}`;
   if (topicId) url += `&topicId=${topicId}`;

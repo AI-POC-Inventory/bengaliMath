@@ -6,6 +6,7 @@ import Practice from './components/Practice';
 import DoubtSolver from './components/DoubtSolver';
 import Progress from './components/Progress';
 import History from './components/History';
+import Admin from './components/Admin';
 import { getPreferences, setPreference } from './api/client';
 import type { NavSection } from './types';
 
@@ -68,6 +69,7 @@ export default function App() {
       case 'doubt':    return <DoubtSolver classId={selectedClass} darkMode={darkMode} />;
       case 'progress': return <Progress classId={selectedClass} darkMode={darkMode} />;
       case 'history':  return <History classId={selectedClass} darkMode={darkMode} />;
+      case 'admin':    return <Admin darkMode={darkMode} />;
     }
   };
 
