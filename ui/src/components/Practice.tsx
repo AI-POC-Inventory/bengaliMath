@@ -75,9 +75,17 @@ export default function Practice({ classId, darkMode }: Props) {
     ? classData?.chapters.find(c => c.id === selectedChapter)?.topics || []
     : [];
 
-  function startPractice() {
-    const pool = getAllQuestions(classId, selectedChapter || undefined, selectedTopic || undefined, selectedDifficulty || undefined);
-    if (pool.length === 0) return;
+  async function startPractice() {
+  console.log('Starting practice with filters:', { selectedChapter, selectedTopic, selectedDifficulty });
+
+  const pool = await getAllQuestions(
+    classId,
+    selectedChapter || undefined,
+    selectedTopic || undefined,
+    selectedDifficulty || undefined
+  );
+
+  if (!pool || pool.length === 0) return;
     const shuffled = [...pool].sort(() => Math.random() - 0.5).slice(0, 10);
     setQuestions(shuffled.map(q => ({ question: q.question, topicId: q.topicId, chapterId: q.chapterId })));
     setCurrentIdx(0);
