@@ -417,6 +417,38 @@ function QuestionForm({
 }
 
 function QuestionsTab({ colors }: { colors: ReturnType<typeof useColors> }) {
+  const [subTab, setSubTab] = useState<'manage' | 'view'>('manage');
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%' }}>
+      {/* Sub-tabs */}
+      <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <button
+          onClick={() => setSubTab('manage')}
+          style={{
+            ...btn(subTab === 'manage' ? colors.primary : '#64748b'),
+            fontWeight: subTab === 'manage' ? 700 : 400,
+          }}
+        >
+          প্রশ্ন পরিচালনা
+        </button>
+        <button
+          onClick={() => setSubTab('view')}
+          style={{
+            ...btn(subTab === 'view' ? colors.primary : '#64748b'),
+            fontWeight: subTab === 'view' ? 700 : 400,
+          }}
+        >
+          সব প্রশ্ন দেখুন
+        </button>
+      </div>
+
+      {subTab === 'manage' ? <ManageQuestionsTab colors={colors} /> : <ViewQuestionsTab colors={colors} />}
+    </div>
+  );
+}
+
+function ManageQuestionsTab({ colors }: { colors: ReturnType<typeof useColors> }) {
   const [classes, setClasses]   = useState<AdminClass[]>([]);
   const [chapters, setChapters] = useState<AdminChapter[]>([]);
   const [topics, setTopics]     = useState<AdminTopic[]>([]);
@@ -599,6 +631,242 @@ function QuestionsTab({ colors }: { colors: ReturnType<typeof useColors> }) {
   );
 }
 
+// ── View Questions Tab ────────────────────────────────────────────────────────
+
+function ViewQuestionsTab({ colors }: { colors: ReturnType<typeof useColors> }) {
+  const [classes, setClasses]     = useState<AdminClass[]>([]);
+  const [chapters, setChapters]   = useState<AdminChapter[]>([]);
+  const [topics, setTopics]       = useState<AdminTopic[]>([]);
+
+  const [selClassId, setSelClassId]     = useState<number | ''>('');
+  const [selChapterId, setSelChapterId] = useState('');
+  const [expandedTopic, setExpandedTopic] = useState<string | null>(null);
+
+  const [topicQuestions, setTopicQuestions] = useState<Record<string, AdminQuestion[]>>({});
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => { getAdminClasses().then(setClasses).catch(() => {}); }, []);
+
+  useEffect(() => {
+    if (!selClassId) { setChapters([]); setSelChapterId(''); return; }
+    getAdminChapters(selClassId).then(setChapters).catch(() => {});
+    setSelChapterId('');
+  }, [selClassId]);
+
+  useEffect(() => {
+    if (!selChapterId) { setTopics([]); setTopicQuestions({}); return; }
+    getAdminTopics(selChapterId).then(setTopics).catch(() => {});
+  }, [selChapterId]);
+
+  async function loadTopicQuestions(topicId: string) {
+    if (topicQuestions[topicId]) {
+      setExpandedTopic(expandedTopic === topicId ? null : topicId);
+      return;
+    }
+    setLoading(true);
+    try {
+      const questions = await getAdminQuestions({ topicId });
+      setTopicQuestions(prev => ({ ...prev, [topicId]: questions }));
+      setExpandedTopic(topicId);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const sel = inputStyle(colors);
+  const diffColor = { easy: '#22c55e', medium: '#f59e0b', hard: '#ef4444' };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', height: '100%' }}>
+      {/* Filters */}
+      <div style={{
+        background: colors.surface, border: `1px solid ${colors.border}`,
+        borderRadius: '0.6rem', padding: '1rem', display: 'flex', gap: '0.75rem', flexWrap: 'wrap',
+      }}>
+        <div style={{ flex: 1, minWidth: '140px' }}>
+          <label style={{ color: colors.sub, fontSize: '0.8rem', display: 'block', marginBottom: '0.3rem' }}>শ্রেণী</label>
+          <select style={sel} value={selClassId} onChange={e => setSelClassId(e.target.value ? parseInt(e.target.value) : '')}>
+            <option value="">-- শ্রেণী নির্বাচন --</option>
+            {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div style={{ flex: 1, minWidth: '140px' }}>
+          <label style={{ color: colors.sub, fontSize: '0.8rem', display: 'block', marginBottom: '0.3rem' }}>অধ্যায়</label>
+          <select style={sel} value={selChapterId} onChange={e => setSelChapterId(e.target.value)} disabled={!selClassId}>
+            <option value="">-- অধ্যায় নির্বাচন --</option>
+            {chapters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Topics and Questions */}
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        {!selClassId && (
+          <div style={{ textAlign: 'center', color: colors.sub, padding: '3rem', fontSize: '0.9rem' }}>
+            উপরে একটি শ্রেণী নির্বাচন করুন
+          </div>
+        )}
+        {selClassId && !selChapterId && (
+          <div style={{ textAlign: 'center', color: colors.sub, padding: '3rem', fontSize: '0.9rem' }}>
+            একটি অধ্যায় নির্বাচন করুন
+          </div>
+        )}
+        {selChapterId && topics.length === 0 && (
+          <div style={{ textAlign: 'center', color: colors.sub, padding: '3rem', fontSize: '0.9rem' }}>
+            এই অধ্যায়ে কোনো বিষয় পাওয়া যায়নি
+          </div>
+        )}
+        {topics.map(topic => {
+          const questions = topicQuestions[topic.id] || [];
+          const isExpanded = expandedTopic === topic.id;
+
+          return (
+            <div key={topic.id} style={{
+              background: colors.surface, border: `1px solid ${colors.border}`,
+              borderRadius: '0.6rem', overflow: 'hidden',
+            }}>
+              {/* Topic header */}
+              <div
+                onClick={() => loadTopicQuestions(topic.id)}
+                style={{
+                  padding: '1rem 1.2rem', cursor: 'pointer',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  background: isExpanded ? colors.bg : 'transparent',
+                  borderBottom: isExpanded ? `1px solid ${colors.border}` : 'none',
+                  transition: 'background 0.15s',
+                }}
+              >
+                <div>
+                  <div style={{ color: colors.text, fontWeight: 700, fontSize: '1rem' }}>{topic.name}</div>
+                  {topic.description && (
+                    <div style={{ color: colors.sub, fontSize: '0.85rem', marginTop: '0.2rem' }}>
+                      {topic.description}
+                    </div>
+                  )}
+                  {isExpanded && questions.length > 0 && (
+                    <div style={{ color: colors.sub, fontSize: '0.8rem', marginTop: '0.3rem' }}>
+                      মোট প্রশ্ন: {questions.length}
+                    </div>
+                  )}
+                </div>
+                <div style={{
+                  color: colors.primary, fontSize: '1.2rem', fontWeight: 700,
+                  transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.2s',
+                }}>
+                  ▼
+                </div>
+              </div>
+
+              {/* Questions list */}
+              {isExpanded && (
+                <div style={{ padding: '0.75rem' }}>
+                  {loading && (
+                    <div style={{ textAlign: 'center', color: colors.sub, padding: '2rem' }}>
+                      লোড হচ্ছে...
+                    </div>
+                  )}
+                  {!loading && questions.length === 0 && (
+                    <div style={{ textAlign: 'center', color: colors.sub, padding: '2rem', fontSize: '0.85rem' }}>
+                      এই বিষয়ে কোনো প্রশ্ন নেই
+                    </div>
+                  )}
+                  {!loading && questions.map((q, i) => (
+                    <div key={q.id} style={{
+                      background: colors.bg, border: `1px solid ${colors.border}`,
+                      borderRadius: '0.5rem', padding: '0.9rem', marginBottom: '0.6rem',
+                    }}>
+                      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
+                        <div style={{
+                          minWidth: '28px', height: '28px', borderRadius: '50%',
+                          background: colors.primary + '20', color: colors.primary,
+                          fontSize: '0.8rem', fontWeight: 700,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          flexShrink: 0,
+                        }}>
+                          {i + 1}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          {/* Question text */}
+                          <div style={{ color: colors.text, fontSize: '0.95rem', marginBottom: '0.5rem', lineHeight: 1.5 }}>
+                            {q.text}
+                          </div>
+
+                          {/* Tags */}
+                          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.6rem' }}>
+                            <span style={{
+                              background: q.type === 'mcq' ? '#3b82f620' : '#8b5cf620',
+                              color: q.type === 'mcq' ? '#3b82f6' : '#8b5cf6',
+                              fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: '1rem',
+                            }}>
+                              {q.type === 'mcq' ? 'MCQ' : 'সংক্ষিপ্ত'}
+                            </span>
+                            <span style={{
+                              background: diffColor[q.difficulty] + '20',
+                              color: diffColor[q.difficulty],
+                              fontSize: '0.7rem', padding: '0.2rem 0.5rem', borderRadius: '1rem',
+                            }}>
+                              {q.difficulty === 'easy' ? 'সহজ' : q.difficulty === 'medium' ? 'মাঝারি' : 'কঠিন'}
+                            </span>
+                          </div>
+
+                          {/* Options (for MCQ) */}
+                          {q.type === 'mcq' && q.options && q.options.length > 0 && (
+                            <div style={{ marginBottom: '0.6rem' }}>
+                              <div style={{ color: colors.sub, fontSize: '0.75rem', marginBottom: '0.3rem' }}>বিকল্পসমূহ:</div>
+                              {q.options.map((opt, idx) => (
+                                <div key={idx} style={{
+                                  display: 'flex', alignItems: 'center', gap: '0.4rem',
+                                  padding: '0.25rem 0', fontSize: '0.85rem',
+                                  color: q.answer === String(idx) ? colors.success : colors.text,
+                                  fontWeight: q.answer === String(idx) ? 600 : 400,
+                                }}>
+                                  <span style={{ minWidth: '20px' }}>({idx + 1})</span>
+                                  <span>{opt}</span>
+                                  {q.answer === String(idx) && <span style={{ color: colors.success }}>✓</span>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Answer (for short) */}
+                          {q.type === 'short' && q.answer && (
+                            <div style={{ marginBottom: '0.6rem' }}>
+                              <span style={{ color: colors.sub, fontSize: '0.75rem' }}>উত্তর: </span>
+                              <span style={{ color: colors.success, fontSize: '0.85rem', fontWeight: 600 }}>
+                                {q.answer}
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Solution */}
+                          {q.solution && (
+                            <div style={{
+                              background: colors.surface, border: `1px solid ${colors.border}`,
+                              borderRadius: '0.4rem', padding: '0.6rem', marginTop: '0.5rem',
+                            }}>
+                              <div style={{ color: colors.sub, fontSize: '0.75rem', marginBottom: '0.3rem' }}>
+                                সমাধান:
+                              </div>
+                              <div style={{ color: colors.text, fontSize: '0.85rem', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                                {q.solution}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Settings Tab ──────────────────────────────────────────────────────────────
 
 function SettingsTab({ colors }: { colors: ReturnType<typeof useColors> }) {
@@ -711,7 +979,7 @@ export default function Admin({ darkMode }: Props) {
       </div>
 
       {/* Tab content */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {tab === 'structure' && <StructureTab colors={colors} />}
         {tab === 'questions' && <QuestionsTab colors={colors} />}
         {tab === 'pdf-upload' && <PDFUpload darkMode={darkMode} />}
