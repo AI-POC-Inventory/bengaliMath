@@ -174,6 +174,216 @@ app.delete('/api/doubts/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── User Profile System ───────────────────────────────────────────────────
+app.post('/api/users', (req, res) => {
+  const { username, displayName, classId } = req.body;
+
+  if (!username || !displayName || !classId) {
+    return res.status(400).json({ error: 'username, displayName, and classId are required' });
+  }
+
+  try {
+    // Check if user already exists
+    const existingUser = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+
+    if (existingUser) {
+      // Update last_active and return existing user
+      db.prepare('UPDATE users SET last_active = datetime("now") WHERE id = ?').run(existingUser.id);
+      return res.json({
+        id: existingUser.id,
+        username: existingUser.username,
+        displayName: existingUser.display_name,
+        classId: existingUser.class_id,
+        totalXp: existingUser.total_xp,
+        currentLevel: existingUser.current_level,
+        streakCount: existingUser.streak_count,
+        longestStreak: existingUser.longest_streak,
+        avatarUrl: existingUser.avatar_url,
+      });
+    }
+
+    // Create new user
+    const result = db.prepare(`
+      INSERT INTO users (username, display_name, class_id, created_at, last_active)
+      VALUES (?, ?, ?, datetime('now'), datetime('now'))
+    `).run(username, displayName, classId);
+
+    const newUser = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+
+    res.json({
+      id: newUser.id,
+      username: newUser.username,
+      displayName: newUser.display_name,
+      classId: newUser.class_id,
+      totalXp: newUser.total_xp,
+      currentLevel: newUser.current_level,
+      streakCount: newUser.streak_count,
+      longestStreak: newUser.longest_streak,
+      avatarUrl: newUser.avatar_url,
+    });
+  } catch (error) {
+    console.error('Error creating/logging in user:', error);
+    res.status(500).json({ error: 'Failed to create/login user' });
+  }
+});
+
+app.get('/api/users/:id', (req, res) => {
+  const userId = parseInt(req.params.id);
+
+  try {
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      id: user.id,
+      username: user.username,
+      displayName: user.display_name,
+      classId: user.class_id,
+      createdAt: user.created_at,
+      lastActive: user.last_active,
+      totalXp: user.total_xp,
+      currentLevel: user.current_level,
+      streakCount: user.streak_count,
+      longestStreak: user.longest_streak,
+      lastPracticeDate: user.last_practice_date,
+      avatarUrl: user.avatar_url,
+    });
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+app.put('/api/users/:id', (req, res) => {
+  const userId = parseInt(req.params.id);
+  const { displayName, avatarUrl } = req.body;
+
+  try {
+    const updates = [];
+    const params = [];
+
+    if (displayName !== undefined) {
+      updates.push('display_name = ?');
+      params.push(displayName);
+    }
+
+    if (avatarUrl !== undefined) {
+      updates.push('avatar_url = ?');
+      params.push(avatarUrl);
+    }
+
+    updates.push('last_active = datetime("now")');
+
+    if (updates.length === 1) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    params.push(userId);
+
+    db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+    const updatedUser = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+
+    if (!updatedUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      id: updatedUser.id,
+      username: updatedUser.username,
+      displayName: updatedUser.display_name,
+      classId: updatedUser.class_id,
+      totalXp: updatedUser.total_xp,
+      currentLevel: updatedUser.current_level,
+      streakCount: updatedUser.streak_count,
+      longestStreak: updatedUser.longest_streak,
+      avatarUrl: updatedUser.avatar_url,
+    });
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
+app.get('/api/users/:id/stats', (req, res) => {
+  const userId = parseInt(req.params.id);
+
+  try {
+    // Get user with level info using the view
+    const userStats = db.prepare('SELECT * FROM user_stats WHERE id = ?').get(userId);
+
+    if (!userStats) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Get recent badges (last 5)
+    const recentBadges = db.prepare(`
+      SELECT b.id, b.name_bengali, b.name_english, b.icon, ub.earned_at
+      FROM user_badges ub
+      JOIN badges b ON ub.badge_id = b.id
+      WHERE ub.user_id = ?
+      ORDER BY ub.earned_at DESC
+      LIMIT 5
+    `).all(userId);
+
+    // Get next level info
+    const nextLevel = db.prepare('SELECT * FROM levels WHERE level = ?').get(userStats.current_level + 1);
+
+    // Calculate XP progress to next level
+    const currentLevelXp = db.prepare('SELECT xp_required FROM levels WHERE level = ?').get(userStats.current_level);
+    const xpProgress = nextLevel
+      ? {
+          current: userStats.total_xp - (currentLevelXp?.xp_required || 0),
+          required: nextLevel.xp_required - (currentLevelXp?.xp_required || 0),
+        }
+      : null;
+
+    // Get recent streak activity (last 7 days)
+    const recentActivity = db.prepare(`
+      SELECT practice_date, questions_completed, questions_correct, xp_earned
+      FROM daily_streaks
+      WHERE user_id = ?
+      ORDER BY practice_date DESC
+      LIMIT 7
+    `).all(userId);
+
+    res.json({
+      user: {
+        id: userStats.id,
+        username: userStats.username,
+        displayName: userStats.display_name,
+        classId: userStats.class_id,
+        totalXp: userStats.total_xp,
+        currentLevel: userStats.current_level,
+        levelName: userStats.level_name,
+        streakCount: userStats.streak_count,
+        longestStreak: userStats.longest_streak,
+      },
+      stats: {
+        badgesEarned: userStats.badges_earned,
+        daysPracticed: userStats.days_practiced,
+        totalQuestions: userStats.total_questions,
+      },
+      progress: {
+        nextLevel: nextLevel ? {
+          level: nextLevel.level,
+          name: nextLevel.name_bengali,
+          icon: nextLevel.icon,
+        } : null,
+        xpProgress,
+      },
+      recentBadges,
+      recentActivity,
+    });
+  } catch (error) {
+    console.error('Error fetching user stats:', error);
+    res.status(500).json({ error: 'Failed to fetch user stats' });
+  }
+});
+
 // ── Curriculum Reading Endpoints ──────────────────────────────────────────────
 app.get('/class/:classId', (req, res) => {
   const classId = parseInt(req.params.classId);
