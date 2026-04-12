@@ -1,84 +1,54 @@
-from db_helper import get_conn
+from supabase_client import supabase
+
 
 def get_class_data(class_id: int):
-    conn = get_conn()
-    cursor = conn.cursor()
-
-    # 🔹 Get class
-    cursor.execute(
-        "SELECT id, name, bengali_name FROM classes WHERE id=?",
-        (class_id,)
-    )
-    cls = cursor.fetchone()
-
-    if not cls:
-        conn.close()
+    cls_row = supabase.table("classes").select("*").eq("id", class_id).limit(1).execute().data
+    if not cls_row:
         return None
 
+    cls = cls_row[0]
     class_data = {
-        "id": cls[0],
-        "name": cls[1],
-        "bengaliName": cls[2],
+        "id": cls["id"],
+        "name": cls["name"],
+        "bengaliName": cls["bengali_name"],
         "chapters": []
     }
 
-    # 🔹 Get chapters
-    cursor.execute(
-        "SELECT id, name, description FROM chapters WHERE class_id=?",
-        (class_id,)
-    )
-    chapters = cursor.fetchall()
+    chapters = supabase.table("chapters").select("*").eq("class_id", class_id).execute().data
 
     for ch in chapters:
         chapter_data = {
-            "id": ch[0],
-            "name": ch[1],
-            "description": ch[2],
+            "id": ch["id"],
+            "name": ch["name"],
+            "description": ch["description"],
             "topics": []
         }
 
-        # 🔹 Get topics
-        cursor.execute(
-            "SELECT id, name, description FROM topics WHERE chapter_id=?",
-            (ch[0],)
-        )
-        topics = cursor.fetchall()
+        topics = supabase.table("topics").select("*").eq("chapter_id", ch["id"]).execute().data
 
         for t in topics:
             topic_data = {
-                "id": t[0],
-                "name": t[1],
-                "description": t[2],
+                "id": t["id"],
+                "name": t["name"],
+                "description": t["description"],
                 "questions": []
             }
 
-            # 🔹 Get questions
-            cursor.execute(
-                """SELECT id, type, text, answer, solution, difficulty 
-                   FROM questions WHERE topic_id=?""",
-                (t[0],)
-            )
-            questions = cursor.fetchall()
+            questions = supabase.table("questions").select("*").eq("topic_id", t["id"]).execute().data
 
             for q in questions:
                 question_data = {
-                    "id": q[0],
-                    "type": q[1],
-                    "text": q[2],
-                    "answer": q[3],
-                    "solution": q[4],
-                    "difficulty": q[5]
+                    "id": q["id"],
+                    "type": q["type"],
+                    "text": q["text"],
+                    "answer": q["answer"],
+                    "solution": q["solution"],
+                    "difficulty": q["difficulty"],
                 }
 
-                # 🔹 Get options (for MCQ)
-                cursor.execute(
-                    "SELECT option_text FROM options WHERE question_id=?",
-                    (q[0],)
-                )
-                opts = cursor.fetchall()
-
-                if opts:
-                    question_data["options"] = [o[0] for o in opts]
+                if q["type"] == "mcq":
+                    opts = supabase.table("options").select("option_text").eq("question_id", q["id"]).execute().data
+                    question_data["options"] = [o["option_text"] for o in opts]
 
                 topic_data["questions"].append(question_data)
 
@@ -86,103 +56,77 @@ def get_class_data(class_id: int):
 
         class_data["chapters"].append(chapter_data)
 
-    conn.close()
     return class_data
 
+
 def get_chapter(class_id: int, chapter_id: str):
-    conn = get_conn()
-    cursor = conn.cursor()
+    rows = (
+        supabase.table("chapters")
+        .select("*")
+        .eq("id", chapter_id)
+        .eq("class_id", class_id)
+        .limit(1)
+        .execute()
+        .data
+    )
+    return rows[0] if rows else None
 
-    cursor.execute("""
-        SELECT * FROM chapters 
-        WHERE id=? AND class_id=?
-    """, (chapter_id, class_id))
-
-    chapter = cursor.fetchone()
-    conn.close()
-    return chapter
 
 def get_topic(class_id: int, topic_id: str):
-    conn = get_conn()
-    cursor = conn.cursor()
+    rows = (
+        supabase.table("topics")
+        .select("*, chapters!inner(id, class_id)")
+        .eq("id", topic_id)
+        .eq("chapters.class_id", class_id)
+        .limit(1)
+        .execute()
+        .data
+    )
+    if not rows:
+        return None
+    row = rows[0]
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "description": row["description"],
+        "chapter_id": row["chapters"]["id"],
+    }
 
-    cursor.execute("""
-        SELECT t.*, c.id as chapter_id
-        FROM topics t
-        JOIN chapters c ON t.chapter_id = c.id
-        WHERE t.id=? AND c.class_id=?
-    """, (topic_id, class_id))
-
-    result = cursor.fetchone()
-    conn.close()
-
-    return result
 
 def get_all_questions(class_id: int, chapter_id=None, topic_id=None, difficulty=None):
-    conn = get_conn()
-    cursor = conn.cursor()
-
-    query = """
-        SELECT q.*, t.id as topic_id, c.id as chapter_id
-        FROM questions q
-        JOIN topics t ON q.topic_id = t.id
-        JOIN chapters c ON t.chapter_id = c.id
-        WHERE c.class_id = ?
-    """
-
-    params = [class_id]
+    query = (
+        supabase.table("questions")
+        .select("*, topics!inner(id, chapter_id, chapters!inner(id, class_id))")
+        .eq("topics.chapters.class_id", class_id)
+    )
 
     if chapter_id:
-        query += " AND c.id = ?"
-        params.append(chapter_id)
-
+        query = query.eq("topics.chapters.id", chapter_id)
     if topic_id:
-        query += " AND t.id = ?"
-        params.append(topic_id)
-
+        query = query.eq("topic_id", topic_id)
     if difficulty:
-        query += " AND q.difficulty = ?"
-        params.append(difficulty)
+        query = query.eq("difficulty", difficulty)
 
-    cursor.execute(query, params)
+    rows = query.execute().data
 
-    rows = cursor.fetchall()
-    conn.close()
-
-    # Format like your TS version
     result = []
     for row in rows:
         result.append({
             "question": {
-                "id": row[0],
-                "type": row[2],
-                "text": row[3],
-                "answer": row[4],
-                "solution": row[5],
-                "difficulty": row[6],
+                "id": row["id"],
+                "type": row["type"],
+                "text": row["text"],
+                "answer": row["answer"],
+                "solution": row["solution"],
+                "difficulty": row["difficulty"],
             },
-            "topicId": row[-2],
-            "chapterId": row[-1]
+            "topicId": row["topics"]["id"],
+            "chapterId": row["topics"]["chapters"]["id"],
         })
 
-    return result    
+    return result
 
 
-def get_options(question_id):
-    conn = get_conn()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT option_text, is_correct 
-        FROM options 
-        WHERE question_id=?
-    """, (question_id,))
-
-    options = cursor.fetchall()
-    conn.close()
-
-    return [
-        {"text": opt[0], "is_correct": bool(opt[1])}
-        for opt in options
-    ]
-
+def get_options(question_id: str):
+    rows = supabase.table("options").select("option_text, is_correct").eq("question_id", question_id).execute().data
+    return [{"text": o["option_text"], "is_correct": bool(o["is_correct"])} for o in rows]

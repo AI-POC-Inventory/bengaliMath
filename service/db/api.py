@@ -1,124 +1,22 @@
 from flask import Flask, jsonify, request, Response, stream_with_context
 from curriculam_reader import get_class_data, get_chapter, get_topic, get_all_questions
-import sqlite3
+from supabase_client import supabase
 import json
 import os
 from dotenv import load_dotenv
 import anthropic
 from flask_cors import CORS
-from google.cloud import storage
 
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:5173"])
 
-# ── CONFIG ─────────────────────────────────────────────────────────────
+# Allow origins from env var (comma-separated) or fall back to localhost dev
+_raw_origins = os.environ.get("CORS_ORIGINS", "http://localhost:5173")
+_allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+CORS(app, origins=_allowed_origins)
 
-BUCKET_NAME = os.getenv("GCS_BUCKET")
-DB_BLOB_NAME = os.getenv("DB_BLOB_NAME", "bengali_curriculam.db")
-LOCAL_DB_PATH = "/tmp/bengali_curriculam.db"
-
-print(f"GCS bucket: {BUCKET_NAME}")
-print(f"Using local DB: {LOCAL_DB_PATH}")
-
-storage_client = storage.Client()
-
-# ── GCS SYNC HELPERS ───────────────────────────────────────────────────
-
-def download_db():
-    try:
-        bucket = storage_client.bucket(BUCKET_NAME)
-        blob = bucket.blob(DB_BLOB_NAME)
-
-        if blob.exists():
-            blob.download_to_filename(LOCAL_DB_PATH)
-            print("✅ DB downloaded from GCS")
-        else:
-            print("⚠️ No DB found in GCS, starting fresh")
-
-    except Exception as e:
-        print("❌ Failed to download DB:", e)
-
-
-def upload_db():
-    try:
-        bucket = storage_client.bucket(BUCKET_NAME)
-        blob = bucket.blob(DB_BLOB_NAME)
-
-        blob.upload_from_filename(LOCAL_DB_PATH)
-        print("✅ DB uploaded to GCS")
-
-    except Exception as e:
-        print("❌ Failed to upload DB:", e)
-
-
-# ── DB HELPERS ─────────────────────────────────────────────────────────
-
-def get_db():
-    con = sqlite3.connect(LOCAL_DB_PATH)
-    con.row_factory = sqlite3.Row
-
-    # ⚠️ IMPORTANT: no WAL in Cloud Run
-    con.execute("PRAGMA journal_mode=DELETE")
-    con.execute("PRAGMA foreign_keys=ON")
-
-    return con
-
-
-def init_db():
-    with get_db() as con:
-        con.executescript("""
-            CREATE TABLE IF NOT EXISTS preferences (
-                key   TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS sessions (
-                id          TEXT    PRIMARY KEY,
-                class_id    INTEGER NOT NULL,
-                chapter_id  TEXT,
-                topic_id    TEXT,
-                difficulty  TEXT,
-                date        TEXT    NOT NULL,
-                completed   INTEGER NOT NULL DEFAULT 0,
-                score       INTEGER NOT NULL DEFAULT 0,
-                total       INTEGER NOT NULL DEFAULT 0
-            );
-
-            CREATE TABLE IF NOT EXISTS session_questions (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id  TEXT    NOT NULL,
-                question_id TEXT    NOT NULL,
-                topic_id    TEXT    NOT NULL,
-                chapter_id  TEXT    NOT NULL,
-                correct     INTEGER NOT NULL DEFAULT 0,
-                attempted   INTEGER NOT NULL DEFAULT 1,
-                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
-            );
-
-            CREATE TABLE IF NOT EXISTS doubts (
-                id        TEXT    PRIMARY KEY,
-                class_id  INTEGER NOT NULL,
-                question  TEXT    NOT NULL,
-                topic     TEXT,
-                response  TEXT    NOT NULL,
-                date      TEXT    NOT NULL
-            );
-        """)
-
-# ── STARTUP ────────────────────────────────────────────────────────────
-
-download_db()
-init_db()
-
-# ── WRITE WRAPPER (AUTO SYNC) ──────────────────────────────────────────
-
-def commit_and_sync(con):
-    con.commit()
-    upload_db()
-
-# ── ROUTES (same as yours, with sync added) ────────────────────────────
+# ── ROUTES ────────────────────────────────────────────────────────────────
 
 @app.route("/class/<int:class_id>")
 def class_data(class_id):
@@ -151,13 +49,11 @@ def questions():
     ))
 
 
-# ── Preferences ───────────────────────────────────────────────────────
+# ── Preferences ───────────────────────────────────────────────────────────
 
 @app.route("/api/preferences", methods=["GET"])
 def get_preferences():
-    with get_db() as con:
-        rows = con.execute("SELECT key, value FROM preferences").fetchall()
-
+    rows = supabase.table("preferences").select("key, value").execute().data
     prefs = {r["key"]: r["value"] for r in rows}
 
     return jsonify({
@@ -170,69 +66,69 @@ def get_preferences():
 @app.route("/api/preferences", methods=["PUT"])
 def put_preferences():
     body = request.get_json()
-
-    with get_db() as con:
-        con.execute(
-            "INSERT OR REPLACE INTO preferences (key, value) VALUES (?, ?)",
-            (body["key"], str(body.get("value", "")))
-        )
-        commit_and_sync(con)
-
+    supabase.table("preferences").upsert({
+        "key": body["key"],
+        "value": str(body.get("value", ""))
+    }).execute()
     return jsonify({"ok": True})
 
 
-# ── Sessions ──────────────────────────────────────────────────────────
+# ── Sessions ──────────────────────────────────────────────────────────────
 
 @app.route("/api/sessions", methods=["POST"])
 def post_session():
     s = request.get_json()
 
-    with get_db() as con:
-        con.execute("""
-            INSERT OR REPLACE INTO sessions
-            (id, class_id, chapter_id, topic_id, difficulty, date, completed, score, total)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            s["id"], s["classId"], s.get("chapterId"), s.get("topicId"),
-            s.get("difficulty"), s["date"],
-            1 if s.get("completed") else 0,
-            s["score"], s["total"]
-        ))
+    supabase.table("sessions").upsert({
+        "id": s["id"],
+        "class_id": s["classId"],
+        "chapter_id": s.get("chapterId"),
+        "topic_id": s.get("topicId"),
+        "difficulty": s.get("difficulty"),
+        "date": s["date"],
+        "completed": s.get("completed", False),
+        "score": s["score"],
+        "total": s["total"]
+    }).execute()
 
-        con.execute("DELETE FROM session_questions WHERE session_id = ?", (s["id"],))
+    # Replace session questions
+    supabase.table("session_questions").delete().eq("session_id", s["id"]).execute()
 
-        for q in s.get("questions", []):
-            con.execute("""
-                INSERT INTO session_questions
-                (session_id, question_id, topic_id, chapter_id, correct, attempted)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                s["id"], q["questionId"], q["topicId"], q["chapterId"],
-                1 if q.get("correct") else 0,
-                1 if q.get("attempted") else 0
-            ))
-
-        commit_and_sync(con)
+    questions = s.get("questions", [])
+    if questions:
+        supabase.table("session_questions").insert([
+            {
+                "session_id": s["id"],
+                "question_id": q["questionId"],
+                "topic_id": q["topicId"],
+                "chapter_id": q["chapterId"],
+                "correct": q.get("correct", False),
+                "attempted": q.get("attempted", True)
+            }
+            for q in questions
+        ]).execute()
 
     return jsonify({"ok": True})
 
 
-# ── Doubts (same pattern) ─────────────────────────────────────────────
+# ── Doubts ────────────────────────────────────────────────────────────────
 
 @app.route("/api/doubts", methods=["POST"])
 def post_doubt():
     d = request.get_json()
 
-    with get_db() as con:
-        con.execute("""
-            INSERT OR REPLACE INTO doubts
-            (id, class_id, question, topic, response, date)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (
-            d["id"], d["classId"], d["question"],
-            d.get("topic"), d["response"], d["date"]
-        ))
-
-        commit_and_sync(con)
+    supabase.table("doubts").upsert({
+        "id": d["id"],
+        "class_id": d["classId"],
+        "question": d["question"],
+        "topic": d.get("topic"),
+        "response": d["response"],
+        "date": d["date"]
+    }).execute()
 
     return jsonify({"ok": True})
+
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(debug=False, host="0.0.0.0", port=port)

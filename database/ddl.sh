@@ -8,38 +8,34 @@ CREATE TABLE classes (
 -- Chapter Table
 CREATE TABLE chapters (
     id TEXT PRIMARY KEY,
-    class_id INTEGER,
+    class_id INTEGER REFERENCES classes(id),
     name TEXT,
-    description TEXT,
-    FOREIGN KEY(class_id) REFERENCES classes(id)
+    description TEXT
 );
 
 -- Topic Table
 CREATE TABLE topics (
     id TEXT PRIMARY KEY,
-    chapter_id TEXT,
+    chapter_id TEXT REFERENCES chapters(id),
     name TEXT,
-    description TEXT,
-    FOREIGN KEY(chapter_id) REFERENCES chapters(id)
+    description TEXT
 );
 
 -- Question Table
 CREATE TABLE questions (
     id TEXT PRIMARY KEY,
-    topic_id TEXT,
+    topic_id TEXT REFERENCES topics(id),
     type TEXT,
     text TEXT,
     answer TEXT,
     solution TEXT,
-    difficulty TEXT,
-    FOREIGN KEY(topic_id) REFERENCES topics(id)
+    difficulty TEXT
 );
 
 -- MCQ Options Table (separate for flexibility)
 CREATE TABLE options (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    question_id TEXT,
+    id SERIAL PRIMARY KEY,
+    question_id TEXT REFERENCES questions(id),
     option_text TEXT,
-    is_correct INTEGER,
-    FOREIGN KEY(question_id) REFERENCES questions(id)
+    is_correct BOOLEAN
 );

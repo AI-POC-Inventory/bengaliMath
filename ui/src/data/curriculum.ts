@@ -798,30 +798,29 @@ export const curriculum: ClassData[] = [
   },
 ];
 
-export async function getClassData(classId: number): Promise<ClassData | undefined> {
-  console.log("getClassData called with classId:", classId);
-  console.log(classId);
+// Base URL for the curriculum API.
+// Set VITE_CURRICULUM_API_URL in your .env (or as a build-time env var on the
+// hosting platform) to point at the deployed Cloud Run service, e.g.:
+//   VITE_CURRICULUM_API_URL=https://bengali-math-api-xxxx-uc.a.run.app
+// Falls back to localhost:5000 for local development.
+const API_BASE = (import.meta.env.VITE_CURRICULUM_API_URL as string | undefined)?.replace(/\/$/, '')
+  ?? 'http://localhost:5000';
 
-  const res = await fetch(`http://localhost:3002/class/${classId}`);
-  const classDataResult = await res.json();
-  console.log(classDataResult);
-  return classDataResult;
+export async function getClassData(classId: number): Promise<ClassData | undefined> {
+  const res = await fetch(`${API_BASE}/class/${classId}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
 }
 
 export async function getChapter(classId: number, chapterId: string) {
-  const res = await fetch(
-    `http://localhost:3002/chapter?classId=${classId}&chapterId=${chapterId}`
-  );
-  console.log(res.json());
+  const res = await fetch(`${API_BASE}/chapter?classId=${classId}&chapterId=${chapterId}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
 export async function getTopic(classId: number, topicId: string) {
-  const res = await fetch(
-    `http://localhost:3002/topic?classId=${classId}&topicId=${topicId}`
-  );
-  console.log(res.json());
-
+  const res = await fetch(`${API_BASE}/topic?classId=${classId}&topicId=${topicId}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
@@ -831,17 +830,12 @@ export async function getAllQuestions(
   topicId?: string,
   difficulty?: string
 ) {
-  let url = `http://127.0.0.1:3002/questions?classId=${classId}`;
-
+  let url = `${API_BASE}/questions?classId=${classId}`;
   if (chapterId) url += `&chapterId=${chapterId}`;
-  if (topicId) url += `&topicId=${topicId}`;
+  if (topicId)   url += `&topicId=${topicId}`;
   if (difficulty) url += `&difficulty=${difficulty}`;
 
   const res = await fetch(url);
-
-  const data = await res.json();   // ✅ read ONLY once
-
-  console.log(data);               // ✅ safe logging
-
-  return data;                     // ✅ return parsed data
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
 }
