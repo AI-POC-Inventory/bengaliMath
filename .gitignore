@@ -9,6 +9,9 @@ build/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+*.db
+*.db-wal
+*.db-shm
 
 # Environment / secrets
 .env

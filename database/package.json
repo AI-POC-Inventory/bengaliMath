@@ -1,0 +1,12 @@
+{
+  "name": "bengalimath-database",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "migrate": "node migrate.js",
+    "migrate:status": "node migrate-status.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0"
+  }
+}
