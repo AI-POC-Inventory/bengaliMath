@@ -384,6 +384,180 @@ app.get('/api/users/:id/stats', (req, res) => {
   }
 });
 
+// ── Streak Management ─────────────────────────────────────────────────────────
+app.get('/api/users/:id/streak', (req, res) => {
+  const userId = parseInt(req.params.id);
+
+  try {
+    const user = db.prepare('SELECT streak_count, longest_streak, last_practice_date FROM users WHERE id = ?').get(userId);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Get last 30 days of activity for calendar
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const startDate = thirtyDaysAgo.toISOString().split('T')[0];
+
+    const recentActivity = db.prepare(`
+      SELECT practice_date, questions_completed, questions_correct, xp_earned, session_count
+      FROM daily_streaks
+      WHERE user_id = ? AND practice_date >= ?
+      ORDER BY practice_date DESC
+    `).all(userId, startDate);
+
+    // Check if streak is still active (practiced today or yesterday)
+    const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+    const isActive = user.last_practice_date === today || user.last_practice_date === yesterdayStr;
+
+    res.json({
+      currentStreak: user.streak_count,
+      longestStreak: user.longest_streak,
+      lastPracticeDate: user.last_practice_date,
+      isActive,
+      recentActivity: recentActivity.map(day => ({
+        date: day.practice_date,
+        questionsCompleted: day.questions_completed,
+        questionsCorrect: day.questions_correct,
+        xpEarned: day.xp_earned,
+        sessionCount: day.session_count,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching streak:', error);
+    res.status(500).json({ error: 'Failed to fetch streak data' });
+  }
+});
+
+app.post('/api/users/:id/streak/record', (req, res) => {
+  const userId = parseInt(req.params.id);
+  const { questionsCompleted, questionsCorrect, xpEarned } = req.body;
+
+  if (!questionsCompleted || questionsCorrect === undefined || !xpEarned) {
+    return res.status(400).json({ error: 'questionsCompleted, questionsCorrect, and xpEarned are required' });
+  }
+
+  try {
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+
+    // Check if already recorded today
+    const todayRecord = db.prepare('SELECT * FROM daily_streaks WHERE user_id = ? AND practice_date = ?').get(userId, today);
+
+    if (todayRecord) {
+      // Update existing record
+      db.prepare(`
+        UPDATE daily_streaks
+        SET questions_completed = questions_completed + ?,
+            questions_correct = questions_correct + ?,
+            xp_earned = xp_earned + ?,
+            session_count = session_count + 1
+        WHERE user_id = ? AND practice_date = ?
+      `).run(questionsCompleted, questionsCorrect, xpEarned, userId, today);
+    } else {
+      // Create new record
+      db.prepare(`
+        INSERT INTO daily_streaks (user_id, practice_date, questions_completed, questions_correct, xp_earned, session_count)
+        VALUES (?, ?, ?, ?, ?, 1)
+      `).run(userId, today, questionsCompleted, questionsCorrect, xpEarned);
+    }
+
+    // Calculate new streak
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+    let newStreak = 1;
+    let currentDate = yesterday;
+
+    // Count consecutive days backwards from yesterday
+    while (true) {
+      const dateStr = currentDate.toISOString().split('T')[0];
+      const record = db.prepare('SELECT * FROM daily_streaks WHERE user_id = ? AND practice_date = ?').get(userId, dateStr);
+
+      if (!record) break;
+
+      newStreak++;
+      currentDate.setDate(currentDate.getDate() - 1);
+    }
+
+    // Update user streak
+    const longestStreak = Math.max(user.longest_streak, newStreak);
+
+    db.prepare(`
+      UPDATE users
+      SET streak_count = ?,
+          longest_streak = ?,
+          last_practice_date = ?,
+          total_xp = total_xp + ?,
+          last_active = datetime('now')
+      WHERE id = ?
+    `).run(newStreak, longestStreak, today, xpEarned, userId);
+
+    // Add XP transaction
+    db.prepare(`
+      INSERT INTO xp_transactions (user_id, amount, reason, created_at)
+      VALUES (?, ?, ?, datetime('now'))
+    `).run(userId, xpEarned, 'practice_session');
+
+    // Check for level up
+    const updatedUser = db.prepare('SELECT total_xp, current_level FROM users WHERE id = ?').get(userId);
+    const nextLevel = db.prepare('SELECT level FROM levels WHERE xp_required <= ? ORDER BY level DESC LIMIT 1').get(updatedUser.total_xp);
+
+    if (nextLevel && nextLevel.level > updatedUser.current_level) {
+      db.prepare('UPDATE users SET current_level = ? WHERE id = ?').run(nextLevel.level, userId);
+    }
+
+    // Check for streak badges
+    const newBadges = [];
+    const streakBadges = [
+      { id: 'streak_3', threshold: 3 },
+      { id: 'streak_7', threshold: 7 },
+      { id: 'streak_30', threshold: 30 },
+      { id: 'streak_100', threshold: 100 },
+    ];
+
+    for (const badge of streakBadges) {
+      if (newStreak >= badge.threshold) {
+        const alreadyHas = db.prepare('SELECT * FROM user_badges WHERE user_id = ? AND badge_id = ?').get(userId, badge.id);
+        if (!alreadyHas) {
+          db.prepare(`
+            INSERT INTO user_badges (user_id, badge_id, earned_at)
+            VALUES (?, ?, datetime('now'))
+          `).run(userId, badge.id);
+
+          const badgeInfo = db.prepare('SELECT name_bengali, icon FROM badges WHERE id = ?').get(badge.id);
+          if (badgeInfo) {
+            newBadges.push({ id: badge.id, ...badgeInfo });
+          }
+        }
+      }
+    }
+
+    res.json({
+      ok: true,
+      streak: newStreak,
+      longestStreak,
+      newBadges,
+      leveledUp: nextLevel && nextLevel.level > updatedUser.current_level,
+      newLevel: nextLevel ? nextLevel.level : updatedUser.current_level,
+    });
+  } catch (error) {
+    console.error('Error recording streak:', error);
+    res.status(500).json({ error: 'Failed to record streak' });
+  }
+});
+
 // ── Curriculum Reading Endpoints ──────────────────────────────────────────────
 app.get('/class/:classId', (req, res) => {
   const classId = parseInt(req.params.classId);
