@@ -1,711 +1,448 @@
+"""
+Bengali Math PDF Extractor — Gemini only (google-genai SDK)
+
+Reads a full textbook PDF, auto-detects every chapter, then extracts content
+for each chapter and saves one JSON file per chapter.
+
+Configuration via .env:
+    GOOGLE_API_KEY   = <your key>
+    PDF_PATH         = path/to/book.pdf
+    CLASS_ID         = 6
+    OUTPUT_DIR       = output          (optional, default: ./output)
+    GEMINI_MODEL     = gemini-2.5-flash (optional)
+    USE_FILE_API     = false            (optional, "true" for Files API mode)
+
+Output schema matches mock.json / mock_6.json:
+[
+  {
+    "id": <class_id>,
+    "name": "Class N",
+    "bengaliName": "...",
+    "chapters": [
+      {
+        "id": "N-C",
+        "name": "<chapter title in Bengali>",
+        "description": "...",
+        "topics": [
+          {
+            "id": "N-C-T",
+            "name": "...",
+            "description": "...",
+            "questions": [
+              {
+                "id": "N-C-T-Q",
+                "type": "mcq" | "short" | "long",
+                "text": "...",
+                "options": [...],    # MCQ only
+                "answer": 0,        # MCQ: 0-based index; short/long: string
+                "solution": "...",
+                "difficulty": "easy" | "medium" | "hard"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]
+"""
+
 import json
-import base64
 import os
+import re
+import time
 from pathlib import Path
-from abc import ABC, abstractmethod
 from dotenv import load_dotenv
-
-# PDF handling
 import fitz  # PyMuPDF
-
 
 load_dotenv()
 
-# ============================================================
-# Base Class for GenAI Extractors
-# ============================================================
 
-class BaseGenAIExtractor(ABC):
-    """Base class for GenAI-based PDF extraction"""
-    
-    def __init__(self, api_key: str = None):
-        self.api_key = api_key
-        self.model_name = None
-    
-    @abstractmethod
-    def extract_from_pdf(self, pdf_path: str) -> dict:
-        """Extract questions and answers from PDF"""
-        pass
-    
-    def _get_extraction_prompt(self) -> str:
-        """Common prompt for extraction"""
-        return """
-You are an expert at extracting educational content from textbooks.
-
-Analyze this PDF page from a Bengali mathematics textbook. No need to calculate where solution is not given. Convert to english fully with proper grammar and extract ALL content in the following JSON format:
-
-{
-    "chapter": {
-        "number": <chapter number as integer>,
-        "title": "<chapter title if visible>",
-        "book": "<book name>",
-        "class": "<class/grade level>"
-    },
-    "example": {
-        "problem": "<example problem text in Bengali>",
-        "problem_english": "<English translation>",
-        "solution": {
-            "given": "<given information>",
-            "steps": ["<step 1>", "<step 2>", ...],
-            "calculation": "<main calculation>",
-            "answer": "<final answer>"
-        }
-    },
-    "exercises": {
-        "section": "<section name like 'করে দেখি — 1.1'>",
-        "questions": [
-            {
-                "number": <question number>,
-                "question": "<full question text in Bengali>",
-                "question_english": "<English translation>",
-                "type": "<question type: fraction/decimal/word_problem/etc>",
-                "solution": {
-                    "steps": ["<step 1>", "<step 2>", ...],
-                    "calculation": "<calculation details>",
-                    "formula_used": "<any formula used>"
-                },
-                "answer": "<final answer with units>"
-            }
-        ]
-    }
+# ---------------------------------------------------------------------------
+# Bengali class-name map
+# ---------------------------------------------------------------------------
+BENGALI_CLASS_NAMES = {
+    1: "প্রথম শ্রেণী",
+    2: "দ্বিতীয় শ্রেণী",
+    3: "তৃতীয় শ্রেণী",
+    4: "চতুর্থ শ্রেণী",
+    5: "পঞ্চম শ্রেণী",
+    6: "ষষ্ঠ শ্রেণী",
+    7: "সপ্তম শ্রেণী",
+    8: "অষ্টম শ্রেণী",
+    9: "নবম শ্রেণী",
+    10: "দশম শ্রেণী",
 }
 
-IMPORTANT:
-1. Output MUST be strictly valid JSON
-2. Do NOT include trailing commas
-3. All keys and strings MUST use double quotes
-4. Do NOT truncate arrays or objects
-5. Ensure all brackets are properly closed
-6. If unsure, return empty arrays instead of partial data
-7. DO NOT wrap response in ```json or markdown
-8. Response must be directly parseable by json.loads()
-"""
-    
-    def _pdf_to_images(self, pdf_path: str, dpi: int = 200) -> list:
-        """Convert PDF pages to base64 images"""
+
+# ---------------------------------------------------------------------------
+# GeminiBookExtractor
+# ---------------------------------------------------------------------------
+class GeminiBookExtractor:
+    """
+    Extract ALL chapters from a Bengali math textbook PDF using Google Gemini.
+
+    Flow
+    ----
+    1. detect_chapters()  — send full PDF to Gemini, get chapter list with page ranges
+    2. extract_chapter()  — for each chapter, send its pages and extract questions
+    3. extract_book()     — runs both phases, saves one JSON per chapter
+
+    All config is read from .env (or passed explicitly).
+    """
+
+    def __init__(
+        self,
+        api_key: str = None,
+        model: str = None,
+    ):
+        self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
+        if not self.api_key:
+            raise ValueError("GOOGLE_API_KEY not set in .env or passed as api_key=")
+        self.model_name = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def extract_book(
+        self,
+        pdf_path: str = None,
+        class_id: int = None,
+        output_dir: str = None,
+        use_file_api: bool = None,
+    ) -> list[str]:
+        """
+        Extract the entire textbook PDF — all chapters — and save one JSON per chapter.
+
+        All parameters fall back to .env values when not supplied.
+        Returns a list of saved JSON file paths.
+        """
+        pdf_path   = pdf_path   or os.getenv("PDF_PATH")
+        class_id   = class_id   or int(os.getenv("CLASS_ID", 0))
+        output_dir = output_dir or os.getenv("OUTPUT_DIR", "output")
+        if use_file_api is None:
+            use_file_api = os.getenv("USE_FILE_API", "false").lower() == "true"
+
+        if not pdf_path or not Path(pdf_path).exists():
+            raise FileNotFoundError(f"PDF not found: {pdf_path!r}. Set PDF_PATH in .env")
+        if not class_id:
+            raise ValueError("CLASS_ID not set in .env or passed as class_id=")
+
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+        print(f"\n📚 Book: {pdf_path}")
+        print(f"🎓 Class: {class_id} | Model: {self.model_name} | mode: {'file-api' if use_file_api else 'image'}\n")
+
+        # Phase 1 — detect chapter structure
+        chapters_meta = self.detect_chapters(pdf_path)
+        print(f"📑 Detected {len(chapters_meta)} chapter(s):\n")
+        for ch in chapters_meta:
+            print(f"   Ch{ch['chapter_num']:>2}  pages {ch['start_page']}-{ch['end_page']}  {ch['title']}")
+
+        # Phase 2 — extract each chapter
+        saved_files = []
+        for ch in chapters_meta:
+            print(f"\n── Extracting chapter {ch['chapter_num']}: {ch['title']} ──")
+            try:
+                data = self.extract_chapter(
+                    pdf_path=pdf_path,
+                    class_id=class_id,
+                    chapter_meta=ch,
+                    use_file_api=use_file_api,
+                )
+                out_path = self._save_chapter(data, class_id, ch["chapter_num"], output_dir)
+                saved_files.append(out_path)
+            except Exception as exc:
+                print(f"❌ Chapter {ch['chapter_num']} failed: {exc}")
+
+        print(f"\n✅ Done. {len(saved_files)}/{len(chapters_meta)} chapters saved to {output_dir}/")
+        return saved_files
+
+    def detect_chapters(self, pdf_path: str) -> list[dict]:
+        """
+        Phase 1: ask Gemini to return a JSON list of chapters with page ranges.
+
+        Returns list of dicts:
+          [{"chapter_num": 1, "title": "ভগ্নাংশ", "start_page": 1, "end_page": 14}, ...]
+        """
+        print("🔍 Phase 1: detecting chapter structure …")
+        prompt = self._chapter_detection_prompt()
+
+        # Use image mode for detection (cheaper, no file upload needed for just structure)
+        raw = self._call_with_images(pdf_path, prompt, dpi=100)
+        chapters = self._parse_json(raw)
+
+        if not isinstance(chapters, list) or not chapters:
+            raise ValueError("Gemini did not return a valid chapter list. Check the PDF.")
+
+        # Sort by chapter_num for predictable order
+        chapters.sort(key=lambda c: c.get("chapter_num", 0))
+        return chapters
+
+    def extract_chapter(
+        self,
+        pdf_path: str,
+        class_id: int,
+        chapter_meta: dict,
+        use_file_api: bool = False,
+    ) -> list:
+        """
+        Phase 2: extract questions/solutions from a single chapter's pages.
+
+        chapter_meta: {"chapter_num": 1, "title": "...", "start_page": 1, "end_page": 14}
+        Returns a list matching the mock.json schema.
+        """
+        prompt = self._extraction_prompt(class_id, chapter_meta)
+
+        if use_file_api:
+            raw = self._call_chapter_file_api(pdf_path, chapter_meta, prompt)
+        else:
+            raw = self._call_chapter_images(pdf_path, chapter_meta, prompt)
+
+        data = self._parse_json(raw)
+        if isinstance(data, dict):
+            data = [data]
+
+        q_count = self._count_questions(data)
+        print(f"   ✅ {q_count} question(s) extracted")
+        return data
+
+    # ------------------------------------------------------------------
+    # Gemini call helpers
+    # ------------------------------------------------------------------
+
+    def _make_client(self):
+        from google import genai
+        return genai.Client(api_key=self.api_key)
+
+    def _pages_to_image_parts(self, pdf_path: str, start_page: int, end_page: int, dpi: int = 200) -> list:
+        """Convert a page range (1-based, inclusive) to Gemini image Parts."""
+        from google.genai import types
+
         doc = fitz.open(pdf_path)
-        images = []
-        
-        for page_num in range(len(doc)):
+        total = len(doc)
+        # Clamp to actual page count
+        s = max(0, start_page - 1)
+        e = min(total, end_page)
+        parts = []
+        for page_num in range(s, e):
             page = doc.load_page(page_num)
-            # Higher DPI for better text recognition
-            mat = fitz.Matrix(dpi/72, dpi/72)
+            mat = fitz.Matrix(dpi / 72, dpi / 72)
             pix = page.get_pixmap(matrix=mat)
-            img_bytes = pix.tobytes("png")
-            img_base64 = base64.b64encode(img_bytes).decode('utf-8')
-            images.append({
-                "page": page_num + 1,
-                "base64": img_base64,
-                "mime_type": "image/png"
-            })
-        
+            parts.append(
+                types.Part.from_bytes(data=pix.tobytes("png"), mime_type="image/png")
+            )
         doc.close()
-        return images
-    
-    def _pdf_to_text(self, pdf_path: str) -> str:
-        """Extract text from PDF"""
+        return parts
+
+    def _call_with_images(self, pdf_path: str, prompt: str, dpi: int = 200) -> str:
+        """Send ALL pages as images to Gemini."""
+        from google.genai import types
+
         doc = fitz.open(pdf_path)
-        text = ""
-        for page in doc:
-            text += page.get_text()
+        total = len(doc)
         doc.close()
-        return text
-    
-    def save_to_json(self, data: dict, output_path: str = None) -> str:
-        """Save extracted data to JSON file"""
-        if output_path is None:
-            output_path = "extracted_content.json"
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        
-        print(f"✅ Data saved to {output_path}")
-        return output_path
 
+        parts = self._pages_to_image_parts(pdf_path, 1, total, dpi)
+        print(f"   ↳ sending {len(parts)} page(s) as images")
+        return self._call_gemini(parts + [types.Part.from_text(text=prompt)])
 
-# ============================================================
-# OpenAI GPT-4 Vision Implementation
-# ============================================================
+    def _call_chapter_images(self, pdf_path: str, chapter_meta: dict, prompt: str) -> str:
+        """Send only the chapter's pages as images to Gemini."""
+        from google.genai import types
 
-class OpenAIExtractor(BaseGenAIExtractor):
-    """Extract using OpenAI GPT-4 Vision"""
-    
-    def __init__(self, api_key: str = None):
-        super().__init__(api_key or os.getenv("OPENAI_API_KEY"))
-        self.model_name = "gpt-4o"  # or "gpt-4-vision-preview"
-    
-    def extract_from_pdf(self, pdf_path: str) -> dict:
-        from openai import OpenAI
-        
-        client = OpenAI(api_key=self.api_key)
-        images = self._pdf_to_images(pdf_path)
-        
-        # Prepare image content for API
-        image_content = []
-        for img in images:
-            image_content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:{img['mime_type']};base64,{img['base64']}",
-                    "detail": "high"
-                }
-            })
-        
-        response = client.chat.completions.create(
-            model=self.model_name,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are an expert at extracting educational content from textbooks. Always respond with valid JSON only."
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": self._get_extraction_prompt()},
-                        *image_content
-                    ]
-                }
-            ],
-            max_tokens=4096,
-            temperature=0.1
+        parts = self._pages_to_image_parts(
+            pdf_path, chapter_meta["start_page"], chapter_meta["end_page"]
         )
-        
-        # Parse response
-        result_text = response.choices[0].message.content
-        
-        # Clean and parse JSON
-        result_text = result_text.strip()
-        if result_text.startswith("```json"):
-            result_text = result_text[7:]
-        if result_text.startswith("```"):
-            result_text = result_text[3:]
-        if result_text.endswith("```"):
-            result_text = result_text[:-3]
-        
-        return json.loads(result_text)
+        print(f"   ↳ sending pages {chapter_meta['start_page']}–{chapter_meta['end_page']} ({len(parts)} image(s))")
+        return self._call_gemini(parts + [types.Part.from_text(text=prompt)])
 
-
-# ============================================================
-# Google Gemini Implementation
-# ============================================================
-
-class GeminiExtractor(BaseGenAIExtractor):
-    """Extract using Google Gemini"""
-    
-    def __init__(self, api_key: str = None):
-        super().__init__(api_key or os.getenv("GOOGLE_API_KEY"))
-        ##self.model_name = "gemini-1.5-pro"
-        self.model_name = "gemini-2.5-flash"
-    
-    def extract_from_pdf(self, pdf_path: str) -> dict:
-        import google.generativeai as genai
-        from PIL import Image
-        import io
-        
-        genai.configure(api_key=self.api_key)
-        model = genai.GenerativeModel(self.model_name)
-        
-        # Convert PDF to images
-        images = self._pdf_to_images(pdf_path)
-        
-        # Prepare PIL images for Gemini
-        pil_images = []
-        for img in images:
-            img_bytes = base64.b64decode(img['base64'])
-            pil_image = Image.open(io.BytesIO(img_bytes))
-            pil_images.append(pil_image)
-        
-        # Create content with images
-        content = [self._get_extraction_prompt()] + pil_images
-        
-        response = model.generate_content(
-            content,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.1,
-                max_output_tokens=4096
-            )
-        )
-        
-        # Parse response
-        result_text = response.text.strip()
-        if result_text.startswith("```json"):
-            result_text = result_text[7:]
-        if result_text.startswith("```"):
-            result_text = result_text[3:]
-        if result_text.endswith("```"):
-            result_text = result_text[:-3]
-        print("Extracted JSON string:", result_text)
-        return json.loads(result_text)
-    
-    def extract_from_pdf_direct(self, pdf_path: str) -> dict:
+    def _call_chapter_file_api(self, pdf_path: str, chapter_meta: dict, prompt: str) -> str:
         """
-        Direct PDF upload (Gemini 1.5+ supports native PDF)
+        Extract the chapter's pages into a temp PDF, upload via Files API, call Gemini.
         """
-        import google.generativeai as genai
-        
-        genai.configure(api_key=self.api_key)
-        model = genai.GenerativeModel(self.model_name)
-        
-        # Upload PDF directly
-        pdf_file = genai.upload_file(pdf_path)
-        
-        response = model.generate_content(
-            [self._get_extraction_prompt(), pdf_file],
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.1,
-                max_output_tokens=4096
-            )
-        )
-        
-        result_text = response.text.strip()
-        if result_text.startswith("```json"):
-            result_text = result_text[7:]
-        if result_text.startswith("```"):
-            result_text = result_text[3:]
-        if result_text.endswith("```"):
-            result_text = result_text[:-3]
-        
-        return json.loads(result_text)
+        from google import genai
+        from google.genai import types
+        import tempfile
 
+        # Slice the chapter pages into a temporary PDF
+        src = fitz.open(pdf_path)
+        tmp_doc = fitz.open()
+        s = chapter_meta["start_page"] - 1
+        e = chapter_meta["end_page"]
+        tmp_doc.insert_pdf(src, from_page=s, to_page=e - 1)
+        src.close()
 
-# ============================================================
-# Anthropic Claude Implementation
-# ============================================================
+        # On Windows the file handle must be closed before fitz can write to it
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp_path = tmp.name
+        tmp_doc.save(tmp_path)
+        tmp_doc.close()
 
-class ClaudeExtractor(BaseGenAIExtractor):
-    """Extract using Anthropic Claude"""
-    
-    def __init__(self, api_key: str = None):
-        super().__init__(api_key or os.getenv("ANTHROPIC_API_KEY"))
-        self.model_name = "claude-sonnet-4-20250514"
-    
-    def extract_from_pdf(self, pdf_path: str) -> dict:
-        import anthropic
-        
-        client = anthropic.Anthropic(api_key=self.api_key)
-        images = self._pdf_to_images(pdf_path)
-        
-        # Prepare image content for Claude
-        image_content = []
-        for img in images:
-            image_content.append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": img['mime_type'],
-                    "data": img['base64']
-                }
-            })
-        
-        # Add text prompt
-        image_content.append({
-            "type": "text",
-            "text": self._get_extraction_prompt()
-        })
-        
-        response = client.messages.create(
-            model=self.model_name,
-            max_tokens=4096,
-            messages=[
-                {
-                    "role": "user",
-                    "content": image_content
-                }
-            ]
-        )
-        
-        # Parse response
-        result_text = response.content[0].text.strip()
-        if result_text.startswith("```json"):
-            result_text = result_text[7:]
-        if result_text.startswith("```"):
-            result_text = result_text[3:]
-        if result_text.endswith("```"):
-            result_text = result_text[:-3]
-        
-        return json.loads(result_text)
-
-
-# ============================================================
-# Azure OpenAI Implementation
-# ============================================================
-
-class AzureOpenAIExtractor(BaseGenAIExtractor):
-    """Extract using Azure OpenAI"""
-    
-    def __init__(self, api_key: str = None, endpoint: str = None, deployment: str = None):
-        super().__init__(api_key or os.getenv("AZURE_OPENAI_API_KEY"))
-        self.endpoint = endpoint or os.getenv("AZURE_OPENAI_ENDPOINT")
-        self.deployment = deployment or os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
-        self.model_name = f"azure/{self.deployment}"
-    
-    def extract_from_pdf(self, pdf_path: str) -> dict:
-        from openai import AzureOpenAI
-        
-        client = AzureOpenAI(
-            api_key=self.api_key,
-            api_version="2024-02-15-preview",
-            azure_endpoint=self.endpoint
-        )
-        
-        images = self._pdf_to_images(pdf_path)
-        
-        image_content = []
-        for img in images:
-            image_content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:{img['mime_type']};base64,{img['base64']}",
-                    "detail": "high"
-                }
-            })
-        
-        response = client.chat.completions.create(
-            model=self.deployment,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are an expert at extracting educational content from textbooks."
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": self._get_extraction_prompt()},
-                        *image_content
-                    ]
-                }
-            ],
-            max_tokens=4096,
-            temperature=0.1
-        )
-        
-        result_text = response.choices[0].message.content.strip()
-        if result_text.startswith("```json"):
-            result_text = result_text[7:]
-        if result_text.startswith("```"):
-            result_text = result_text[3:]
-        if result_text.endswith("```"):
-            result_text = result_text[:-3]
-        
-        return json.loads(result_text)
-
-
-# ============================================================
-# AWS Bedrock (Claude) Implementation
-# ============================================================
-
-class BedrockExtractor(BaseGenAIExtractor):
-    """Extract using AWS Bedrock"""
-    
-    def __init__(self, region: str = "us-east-1"):
-        super().__init__()
-        self.region = region
-        self.model_name = "anthropic.claude-3-sonnet-20240229-v1:0"
-    
-    def extract_from_pdf(self, pdf_path: str) -> dict:
-        import boto3
-        
-        client = boto3.client('bedrock-runtime', region_name=self.region)
-        images = self._pdf_to_images(pdf_path)
-        
-        # Prepare content for Bedrock Claude
-        content = []
-        for img in images:
-            content.append({
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": img['mime_type'],
-                    "data": img['base64']
-                }
-            })
-        
-        content.append({
-            "type": "text",
-            "text": self._get_extraction_prompt()
-        })
-        
-        body = json.dumps({
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 4096,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": content
-                }
-            ]
-        })
-        
-        response = client.invoke_model(
-            modelId=self.model_name,
-            body=body
-        )
-        
-        result = json.loads(response['body'].read())
-        result_text = result['content'][0]['text'].strip()
-        
-        if result_text.startswith("```json"):
-            result_text = result_text[7:]
-        if result_text.startswith("```"):
-            result_text = result_text[3:]
-        if result_text.endswith("```"):
-            result_text = result_text[:-3]
-        
-        return json.loads(result_text)
-
-
-# ============================================================
-# Ollama (Local) Implementation
-# ============================================================
-
-class OllamaExtractor(BaseGenAIExtractor):
-    """Extract using local Ollama models (LLaVA, Bakllava, etc.)"""
-    
-    def __init__(self, model: str = "llava:13b", host: str = "[localhost](http://localhost:11434)"):
-        super().__init__()
-        self.model_name = model
-        self.host = host
-    
-    def extract_from_pdf(self, pdf_path: str) -> dict:
-        import requests
-        
-        images = self._pdf_to_images(pdf_path)
-        
-        # Ollama expects images as base64 strings in a list
-        image_data = [img['base64'] for img in images]
-        
-        response = requests.post(
-            f"{self.host}/api/generate",
-            json={
-                "model": self.model_name,
-                "prompt": self._get_extraction_prompt(),
-                "images": image_data,
-                "stream": False,
-                "options": {
-                    "temperature": 0.1
-                }
-            }
-        )
-        
-        result = response.json()
-        result_text = result['response'].strip()
-        
-        if result_text.startswith("```json"):
-            result_text = result_text[7:]
-        if result_text.startswith("```"):
-            result_text = result_text[3:]
-        if result_text.endswith("```"):
-            result_text = result_text[:-3]
-        
-        return json.loads(result_text)
-
-
-# ============================================================
-# LangChain Universal Implementation
-# ============================================================
-
-class LangChainExtractor(BaseGenAIExtractor):
-    """Extract using LangChain (supports multiple providers)"""
-    
-    def __init__(self, provider: str = "openai", **kwargs):
-        super().__init__()
-        self.provider = provider
-        self.kwargs = kwargs
-    
-    def _get_llm(self):
-        """Get LangChain LLM based on provider"""
-        if self.provider == "openai":
-            from langchain_openai import ChatOpenAI
-            return ChatOpenAI(
-                model="gpt-4o",
-                temperature=0.1,
-                max_tokens=4096
-            )
-        elif self.provider == "google":
-            from langchain_google_genai import ChatGoogleGenerativeAI
-            return ChatGoogleGenerativeAI(
-                model="gemini-1.5-pro",
-                temperature=0.1,
-                max_tokens=4096
-            )
-        elif self.provider == "anthropic":
-            from langchain_anthropic import ChatAnthropic
-            return ChatAnthropic(
-                model="claude-sonnet-4-20250514",
-                temperature=0.1,
-                max_tokens=4096
-            )
-        else:
-            raise ValueError(f"Unknown provider: {self.provider}")
-    
-    def extract_from_pdf(self, pdf_path: str) -> dict:
-        from langchain_core.messages import HumanMessage
-        
-        llm = self._get_llm()
-        images = self._pdf_to_images(pdf_path)
-        
-        # Prepare content
-        content = [{"type": "text", "text": self._get_extraction_prompt()}]
-        
-        for img in images:
-            content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:{img['mime_type']};base64,{img['base64']}"
-                }
-            })
-        
-        message = HumanMessage(content=content)
-        response = llm.invoke([message])
-        
-        result_text = response.content.strip()
-        if result_text.startswith("```json"):
-            result_text = result_text[7:]
-        if result_text.startswith("```"):
-            result_text = result_text[3:]
-        if result_text.endswith("```"):
-            result_text = result_text[:-3]
-        
-        return json.loads(result_text)
-
-
-# ============================================================
-# Unified Extractor (Auto-select best available)
-# ============================================================
-
-class UnifiedPDFExtractor:
-    """
-    Unified extractor that automatically selects the best available GenAI model
-    """
-    
-    PROVIDERS = {
-        "openai": (OpenAIExtractor, "OPENAI_API_KEY"),
-        "google": (GeminiExtractor, "GOOGLE_API_KEY"),
-        "anthropic": (ClaudeExtractor, "ANTHROPIC_API_KEY"),
-        "azure": (AzureOpenAIExtractor, "AZURE_OPENAI_API_KEY"),
-    }
-    
-    def __init__(self, provider: str = None, **kwargs):
-        """
-        Initialize with specific provider or auto-detect
-        
-        Args:
-            provider: One of 'openai', 'google', 'anthropic', 'azure', 'bedrock', 'ollama'
-            **kwargs: Provider-specific arguments
-        """
-        if provider:
-            self.extractor = self._get_extractor(provider, **kwargs)
-        else:
-            self.extractor = self._auto_detect_extractor()
-    
-    def _get_extractor(self, provider: str, **kwargs) -> BaseGenAIExtractor:
-        """Get extractor for specific provider"""
-        if provider == "openai":
-            return OpenAIExtractor(**kwargs)
-        elif provider == "google":
-            return GeminiExtractor(**kwargs)
-        elif provider == "anthropic":
-            return ClaudeExtractor(**kwargs)
-        elif provider == "azure":
-            return AzureOpenAIExtractor(**kwargs)
-        elif provider == "bedrock":
-            return BedrockExtractor(**kwargs)
-        elif provider == "ollama":
-            return OllamaExtractor(**kwargs)
-        elif provider == "langchain":
-            return LangChainExtractor(**kwargs)
-        else:
-            raise ValueError(f"Unknown provider: {provider}")
-    
-    def _auto_detect_extractor(self) -> BaseGenAIExtractor:
-        """Auto-detect available API keys and return appropriate extractor"""
-        for provider, (extractor_class, env_var) in self.PROVIDERS.items():
-            if os.getenv(env_var):
-                print(f"✅ Auto-detected {provider} API key")
-                return extractor_class()
-        
-        # Check for Ollama
         try:
-            import requests
-            response = requests.get("[localhost](http://localhost:11434/api/tags)", timeout=2)
-            if response.status_code == 200:
-                print("✅ Auto-detected local Ollama instance")
-                return OllamaExtractor()
-        except:
-            pass
-        
-        raise ValueError(
-            "No API keys found! Set one of: OPENAI_API_KEY, GOOGLE_API_KEY, "
-            "ANTHROPIC_API_KEY, AZURE_OPENAI_API_KEY, or run Ollama locally"
+            client = self._make_client()
+            print(f"   ↳ uploading chapter PDF (pages {chapter_meta['start_page']}–{chapter_meta['end_page']}) …")
+            uploaded = client.files.upload(
+                file=tmp_path,
+                config=types.UploadFileConfig(mime_type="application/pdf"),
+            )
+            while uploaded.state.name == "PROCESSING":
+                time.sleep(2)
+                uploaded = client.files.get(name=uploaded.name)
+            if uploaded.state.name == "FAILED":
+                raise RuntimeError(f"File upload failed: {uploaded.name}")
+
+            response = client.models.generate_content(
+                model=self.model_name,
+                contents=[
+                    types.Part.from_uri(file_uri=uploaded.uri, mime_type="application/pdf"),
+                    types.Part.from_text(text=prompt),
+                ],
+                config=types.GenerateContentConfig(temperature=0.1, max_output_tokens=8192),
+            )
+            try:
+                client.files.delete(name=uploaded.name)
+            except Exception:
+                pass
+            return response.text
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+
+    def _call_gemini(self, contents: list) -> str:
+        from google.genai import types
+
+        client = self._make_client()
+        response = client.models.generate_content(
+            model=self.model_name,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                temperature=0.1,
+                max_output_tokens=8192,
+            ),
         )
-    
-    def extract(self, pdf_path: str) -> dict:
-        """Extract content from PDF"""
-        print(f"📄 Processing: {pdf_path}")
-        print(f"🤖 Using: {self.extractor.model_name}")
-        
-        result = self.extractor.extract_from_pdf(pdf_path)
-        
-        print(f"✅ Extracted {len(result.get('exercises', {}).get('questions', []))} questions")
-        return result
-    
-    def extract_and_save(self, pdf_path: str, output_path: str = None) -> dict:
-        """Extract and save to JSON"""
-        result = self.extract(pdf_path)
-        
-        if output_path is None:
-            output_path = Path(pdf_path).stem + "_extracted.json"
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(result, f, ensure_ascii=False, indent=2)
-        
-        print(f"💾 Saved to: {output_path}")
-        return result
+        return response.text
+
+    # ------------------------------------------------------------------
+    # Prompts
+    # ------------------------------------------------------------------
+
+    def _chapter_detection_prompt(self) -> str:
+        return """
+You are analysing a Bengali mathematics textbook PDF.
+
+Identify every chapter in this book. For each chapter return its number, Bengali title,
+and the page range (1-based, inclusive).
+
+Return ONLY a JSON array — no markdown, no explanation:
+
+[
+  {"chapter_num": 1, "title": "<Bengali chapter title>", "start_page": 1, "end_page": 14},
+  {"chapter_num": 2, "title": "<Bengali chapter title>", "start_page": 15, "end_page": 30}
+]
+
+RULES:
+- chapter_num must be an integer starting from 1
+- start_page and end_page are 1-based page numbers (inclusive)
+- title must be in Bengali script as printed in the book
+- Do NOT include front matter, index, or appendix pages as chapters
+- Output strictly valid JSON — no trailing commas, no markdown fences
+"""
+
+    def _extraction_prompt(self, class_id: int, chapter_meta: dict) -> str:
+        bengali_class = BENGALI_CLASS_NAMES.get(class_id, f"শ্রেণী {class_id}")
+        ch = chapter_meta["chapter_num"]
+        return f"""
+You are an expert at extracting educational content from Bengali mathematics textbooks.
+
+Carefully analyse ALL pages in this PDF — it contains Chapter {ch} of Class {class_id}.
+Extract EVERY example problem, exercise question, and worked solution.
+
+Return ONLY a valid JSON array — no markdown, no explanation:
+
+[
+  {{
+    "id": {class_id},
+    "name": "Class {class_id}",
+    "bengaliName": "{bengali_class}",
+    "chapters": [
+      {{
+        "id": "{class_id}-{ch}",
+        "name": "<chapter title in Bengali exactly as printed>",
+        "description": "<one-line description in Bengali>",
+        "topics": [
+          {{
+            "id": "{class_id}-{ch}-1",
+            "name": "<section/topic name in Bengali>",
+            "description": "<short description>",
+            "questions": [
+              {{
+                "id": "{class_id}-{ch}-1-1",
+                "type": "mcq",
+                "text": "<full question in Bengali>",
+                "options": ["<A>", "<B>", "<C>", "<D>"],
+                "answer": 0,
+                "solution": "<step-by-step solution in Bengali>",
+                "difficulty": "easy"
+              }},
+              {{
+                "id": "{class_id}-{ch}-1-2",
+                "type": "short",
+                "text": "<question in Bengali>",
+                "answer": "<answer string>",
+                "solution": "<step-by-step solution in Bengali>",
+                "difficulty": "medium"
+              }}
+            ]
+          }}
+        ]
+      }}
+    ]
+  }}
+]
+
+RULES:
+1. "type": "mcq" — include "options" (4 strings) and "answer" (0-based correct index)
+2. "type": "short" or "long" — "answer" is a string; no "options" field
+3. "difficulty": "easy", "medium", or "hard"
+4. IDs follow pattern: {class_id}-{ch}-<topic_num>-<question_num>
+5. Keep ALL text in Bengali script — do NOT translate to English
+6. Output strictly valid JSON — no trailing commas, no markdown fences
+"""
+
+    # ------------------------------------------------------------------
+    # Utilities
+    # ------------------------------------------------------------------
+
+    def _parse_json(self, text: str):
+        text = text.strip()
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text)
+        return json.loads(text.strip())
+
+    def _count_questions(self, data: list) -> int:
+        count = 0
+        for cls in data:
+            for chapter in cls.get("chapters", []):
+                for topic in chapter.get("topics", []):
+                    count += len(topic.get("questions", []))
+        return count
+
+    def _save_chapter(self, data: list, class_id: int, chapter_num: int, output_dir: str) -> str:
+        out_file = Path(output_dir) / f"class_{class_id}_chapter_{chapter_num:02d}.json"
+        with open(out_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        print(f"   💾 Saved → {out_file}")
+        return str(out_file)
 
 
-# ============================================================
-# Main Execution
-# ============================================================
+# ---------------------------------------------------------------------------
+# Entry point — reads everything from .env
+# ---------------------------------------------------------------------------
 
 def main():
-    import sys
-    
-    # Get PDF path
-    if len(sys.argv) > 1:
-        pdf_path = sys.argv[1]
-    else:
-        pdf_path = "Chapter_5000.pdf"
-    
-    # Get provider (optional)
-    provider = sys.argv[2] if len(sys.argv) > 2 else None
-    
-    # Check if PDF exists
-    if not Path(pdf_path).exists():
-        print(f"❌ PDF not found: {pdf_path}")
-        print("\n📝 Creating demo with sample prompt...")
-        
-        # Demo: Show what the prompt looks like
-        demo_extractor = BaseGenAIExtractor.__subclasses__()[0]
-        print("\n" + "="*60)
-        print("EXTRACTION PROMPT:")
-        print("="*60)
-        print(demo_extractor(None)._get_extraction_prompt())
-        return
-    
-    try:
-        # Create extractor and process
-        extractor = UnifiedPDFExtractor(provider=provider)
-        result = extractor.extract_and_save(pdf_path)
-        
-        # Print result
-        print("\n" + "="*60)
-        print("EXTRACTED CONTENT:")
-        print("="*60)
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-        
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        raise
+    extractor = GeminiBookExtractor()
+    extractor.extract_book()
 
 
 if __name__ == "__main__":

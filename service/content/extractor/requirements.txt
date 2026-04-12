@@ -1,12 +1,6 @@
-PyMuPDF 
-Pillow
-openai
-google-generativeai
+PyMuPDF
 anthropic
-boto3
-langchain 
-langchain-openai 
-langchain-google-genai 
-langchain-anthropic
-
-
+python-dotenv
+json-repair
+pandas
+openpyxl
