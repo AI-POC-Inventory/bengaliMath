@@ -558,6 +558,259 @@ app.post('/api/users/:id/streak/record', (req, res) => {
   }
 });
 
+// ── Mistake Notebook ──────────────────────────────────────────────────────────
+app.get('/api/users/:id/mistakes', (req, res) => {
+  const userId = parseInt(req.params.id);
+  const { topicId, chapterId, masteredOnly } = req.query;
+
+  try {
+    let query = `
+      SELECT m.*, q.text as question_text, q.type as question_type,
+             q.answer as correct_answer, q.difficulty,
+             t.name as topic_name, c.name as chapter_name
+      FROM mistake_records m
+      JOIN questions q ON m.question_id = q.id
+      JOIN topics t ON m.topic_id = t.id
+      JOIN chapters c ON m.chapter_id = c.id
+      WHERE m.user_id = ?
+    `;
+
+    const params = [userId];
+
+    if (topicId) {
+      query += ' AND m.topic_id = ?';
+      params.push(topicId);
+    }
+
+    if (chapterId) {
+      query += ' AND m.chapter_id = ?';
+      params.push(chapterId);
+    }
+
+    if (masteredOnly === 'true') {
+      query += ' AND m.mastered = 1';
+    } else if (masteredOnly === 'false') {
+      query += ' AND m.mastered = 0';
+    }
+
+    query += ' ORDER BY m.last_failed_date DESC';
+
+    const mistakes = db.prepare(query).all(...params);
+
+    // Get summary statistics
+    const stats = db.prepare(`
+      SELECT
+        COUNT(*) as total_mistakes,
+        SUM(CASE WHEN mastered = 1 THEN 1 ELSE 0 END) as mastered_count,
+        SUM(CASE WHEN mastered = 0 THEN 1 ELSE 0 END) as pending_count,
+        AVG(times_failed) as avg_attempts
+      FROM mistake_records
+      WHERE user_id = ?
+    `).get(userId);
+
+    // Get mistakes by topic
+    const byTopic = db.prepare(`
+      SELECT t.id, t.name, COUNT(*) as mistake_count,
+             SUM(CASE WHEN m.mastered = 0 THEN 1 ELSE 0 END) as pending
+      FROM mistake_records m
+      JOIN topics t ON m.topic_id = t.id
+      WHERE m.user_id = ?
+      GROUP BY t.id, t.name
+      ORDER BY mistake_count DESC
+    `).all(userId);
+
+    res.json({
+      mistakes: mistakes.map(m => ({
+        id: m.id,
+        questionId: m.question_id,
+        questionText: m.question_text,
+        questionType: m.question_type,
+        correctAnswer: m.correct_answer,
+        difficulty: m.difficulty,
+        topicId: m.topic_id,
+        topicName: m.topic_name,
+        chapterId: m.chapter_id,
+        chapterName: m.chapter_name,
+        firstAttemptDate: m.first_attempt_date,
+        timesFailed: m.times_failed,
+        lastFailedDate: m.last_failed_date,
+        mastered: Boolean(m.mastered),
+        masteredDate: m.mastered_date,
+      })),
+      stats: {
+        total: stats?.total_mistakes || 0,
+        mastered: stats?.mastered_count || 0,
+        pending: stats?.pending_count || 0,
+        avgAttempts: stats?.avg_attempts || 0,
+      },
+      byTopic: byTopic.map(t => ({
+        topicId: t.id,
+        topicName: t.name,
+        mistakeCount: t.mistake_count,
+        pending: t.pending,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching mistakes:', error);
+    res.status(500).json({ error: 'Failed to fetch mistakes' });
+  }
+});
+
+app.post('/api/users/:id/mistakes', (req, res) => {
+  const userId = parseInt(req.params.id);
+  const { questionId, topicId, chapterId } = req.body;
+
+  if (!questionId || !topicId || !chapterId) {
+    return res.status(400).json({ error: 'questionId, topicId, and chapterId are required' });
+  }
+
+  try {
+    const today = new Date().toISOString().split('T')[0];
+
+    // Check if mistake already exists
+    const existing = db.prepare('SELECT * FROM mistake_records WHERE user_id = ? AND question_id = ?').get(userId, questionId);
+
+    if (existing) {
+      // Update existing mistake
+      db.prepare(`
+        UPDATE mistake_records
+        SET times_failed = times_failed + 1,
+            last_failed_date = ?,
+            mastered = 0,
+            mastered_date = NULL
+        WHERE user_id = ? AND question_id = ?
+      `).run(today, userId, questionId);
+    } else {
+      // Create new mistake record
+      db.prepare(`
+        INSERT INTO mistake_records (user_id, question_id, chapter_id, topic_id, first_attempt_date, last_failed_date)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(userId, questionId, chapterId, topicId, today, today);
+    }
+
+    // Check if should add to review schedule (spaced repetition)
+    const reviewExists = db.prepare('SELECT * FROM review_schedule WHERE user_id = ? AND question_id = ?').get(userId, questionId);
+
+    if (!reviewExists) {
+      // Add to review schedule with 1-day interval
+      const nextReview = new Date();
+      nextReview.setDate(nextReview.getDate() + 1);
+
+      db.prepare(`
+        INSERT INTO review_schedule (user_id, question_id, next_review_date, interval_days)
+        VALUES (?, ?, ?, ?)
+      `).run(userId, questionId, nextReview.toISOString().split('T')[0], 1);
+    } else {
+      // Reset interval to 1 day (failed again)
+      const nextReview = new Date();
+      nextReview.setDate(nextReview.getDate() + 1);
+
+      db.prepare(`
+        UPDATE review_schedule
+        SET next_review_date = ?,
+            interval_days = 1,
+            ease_factor = GREATEST(1.3, ease_factor - 0.2)
+        WHERE user_id = ? AND question_id = ?
+      `).run(nextReview.toISOString().split('T')[0], userId, questionId);
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error recording mistake:', error);
+    res.status(500).json({ error: 'Failed to record mistake' });
+  }
+});
+
+app.put('/api/users/:id/mistakes/:questionId/master', (req, res) => {
+  const userId = parseInt(req.params.id);
+  const questionId = req.params.questionId;
+
+  try {
+    const today = new Date().toISOString().split('T')[0];
+
+    // Mark mistake as mastered
+    const result = db.prepare(`
+      UPDATE mistake_records
+      SET mastered = 1,
+          mastered_date = ?
+      WHERE user_id = ? AND question_id = ?
+    `).run(today, userId, questionId);
+
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Mistake record not found' });
+    }
+
+    // Update review schedule - increase interval
+    const review = db.prepare('SELECT * FROM review_schedule WHERE user_id = ? AND question_id = ?').get(userId, questionId);
+
+    if (review) {
+      // Calculate next interval using spaced repetition
+      const intervals = [1, 3, 7, 14, 30, 60, 120];
+      const currentIndex = intervals.indexOf(review.interval_days);
+      const nextInterval = currentIndex >= 0 && currentIndex < intervals.length - 1
+        ? intervals[currentIndex + 1]
+        : 120; // Max 120 days
+
+      const nextReview = new Date();
+      nextReview.setDate(nextReview.getDate() + nextInterval);
+
+      db.prepare(`
+        UPDATE review_schedule
+        SET next_review_date = ?,
+            interval_days = ?,
+            ease_factor = LEAST(2.5, ease_factor + 0.1)
+        WHERE user_id = ? AND question_id = ?
+      `).run(nextReview.toISOString().split('T')[0], nextInterval, userId, questionId);
+    }
+
+    res.json({ ok: true, nextReviewInterval: review?.interval_days });
+  } catch (error) {
+    console.error('Error mastering mistake:', error);
+    res.status(500).json({ error: 'Failed to master mistake' });
+  }
+});
+
+app.get('/api/users/:id/reviews/due', (req, res) => {
+  const userId = parseInt(req.params.id);
+
+  try {
+    const today = new Date().toISOString().split('T')[0];
+
+    const dueReviews = db.prepare(`
+      SELECT r.*, q.text as question_text, q.type as question_type,
+             q.answer as correct_answer, q.difficulty,
+             t.name as topic_name, c.name as chapter_name,
+             m.times_failed, m.mastered
+      FROM review_schedule r
+      JOIN questions q ON r.question_id = q.id
+      JOIN topics t ON q.topic_id = t.id
+      JOIN chapters c ON t.chapter_id = c.id
+      LEFT JOIN mistake_records m ON m.user_id = r.user_id AND m.question_id = r.question_id
+      WHERE r.user_id = ? AND r.next_review_date <= ? AND COALESCE(m.mastered, 0) = 0
+      ORDER BY r.next_review_date ASC
+    `).all(userId, today);
+
+    res.json({
+      dueCount: dueReviews.length,
+      reviews: dueReviews.map(r => ({
+        questionId: r.question_id,
+        questionText: r.question_text,
+        questionType: r.question_type,
+        correctAnswer: r.correct_answer,
+        difficulty: r.difficulty,
+        topicName: r.topic_name,
+        chapterName: r.chapter_name,
+        nextReviewDate: r.next_review_date,
+        intervalDays: r.interval_days,
+        timesFailed: r.times_failed || 0,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching due reviews:', error);
+    res.status(500).json({ error: 'Failed to fetch due reviews' });
+  }
+});
+
 // ── Curriculum Reading Endpoints ──────────────────────────────────────────────
 app.get('/class/:classId', (req, res) => {
   const classId = parseInt(req.params.classId);
