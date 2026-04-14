@@ -1,0 +1,80 @@
+name: Deploy UI to Cloud Storage
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'ui/**'
+      - '.github/workflows/deploy-ui.yml'
+
+env:
+  BUCKET: ${{ vars.GCS_UI_BUCKET }}   # e.g. bengali-math-ui  (no gs:// prefix)
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      # ── 1. Checkout ──────────────────────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── 2. Set up Node ───────────────────────────────────────────────────────
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # ── 3. Install dependencies ──────────────────────────────────────────────
+      - name: Install dependencies
+        working-directory: ui
+        run: npm ci
+
+      # ── 4. Build ─────────────────────────────────────────────────────────────
+      - name: Build
+        working-directory: ui
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+        run: npm run build          # outputs to ui/dist/
+
+      # ── 5. Authenticate to Google Cloud ──────────────────────────────────────
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # ── 6. Set up gcloud CLI ─────────────────────────────────────────────────
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # ── 7. Upload to Cloud Storage ───────────────────────────────────────────
+      #   Hashed assets (JS/CSS) get a 1-year immutable cache.
+      #   index.html and other entry points get no-cache so browsers always
+      #   re-fetch the latest shell.
+      - name: Upload hashed assets
+        working-directory: ui/dist
+        run: |
+          gsutil -m -h "Cache-Control:public, max-age=31536000, immutable" \
+            rsync -r -c assets/ gs://${{ env.BUCKET }}/assets/
+
+      - name: Upload root files (HTML, manifest, etc.)
+        working-directory: ui/dist
+        run: |
+          gsutil -m -h "Cache-Control:no-cache, no-store, must-revalidate" \
+            rsync -r -c -x "^assets/" . gs://${{ env.BUCKET }}/
+
+      # ── 8. Make bucket contents publicly readable ─────────────────────────────
+      #   (Only needed once on bucket creation; safe to re-run.)
+      - name: Ensure public read access
+        run: |
+          gsutil iam ch allUsers:objectViewer gs://${{ env.BUCKET }}
+
+      # ── 9. Print live URL ────────────────────────────────────────────────────
+      - name: Show live URL
+        run: echo "https://storage.googleapis.com/${{ env.BUCKET }}/index.html"
