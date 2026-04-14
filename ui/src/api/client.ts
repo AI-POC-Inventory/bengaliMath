@@ -1,6 +1,7 @@
 import type { PracticeSession, DoubtEntry } from '../types';
 
-const BASE = 'http://localhost:3001/api';
+const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '')
+  ?? 'http://localhost:3001/api';
 
 // ── Internal helper ───────────────────────────────────────────────────────────
 

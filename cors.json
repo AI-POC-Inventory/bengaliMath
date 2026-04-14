@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://storage.googleapis.com"],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type"],
+    "maxAgeSeconds": 3600
+  }
+]
