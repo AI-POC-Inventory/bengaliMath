@@ -13,7 +13,10 @@ build/
 # Environment / secrets
 .env
 .env.local
-
+ui/.env.example
+database/*.db-shm
+database/*.db-wal
+*/.env.example
 # Vite cache
 ui/.vite/
 

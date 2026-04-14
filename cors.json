@@ -4,5 +4,12 @@
     "method": ["GET", "HEAD"],
     "responseHeader": ["Content-Type"],
     "maxAgeSeconds": 3600
+  },
+   {
+    "origin": ["https://ganit-siksha.storage.googleapis.com"],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type"],
+    "maxAgeSeconds": 3600
   }
+  
 ]

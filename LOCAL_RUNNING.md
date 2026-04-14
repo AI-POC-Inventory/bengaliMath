@@ -193,3 +193,6 @@ npm run build
 - ✅ Ready for development!
 
 **Access your app**: http://localhost:5173
+
+
+gcloud storage buckets update gs://ganit-siksha --cors-file=cors.json
