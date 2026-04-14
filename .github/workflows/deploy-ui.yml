@@ -76,6 +76,16 @@ jobs:
         run: |
           gsutil iam ch allUsers:objectViewer gs://${{ env.BUCKET }}
 
-      # ── 9. Print live URL ────────────────────────────────────────────────────
+      # ── 9. Enable static website hosting ────────────────────────────────────
+      #   MainPageSuffix  → serves index.html when / is requested
+      #   ErrorPage       → serves index.html for unknown paths (SPA routing)
+      - name: Configure bucket as static website
+        run: |
+          gsutil web set \
+            -m index.html \
+            -e index.html \
+            gs://${{ env.BUCKET }}
+
+      # ── 10. Print live URL ───────────────────────────────────────────────────
       - name: Show live URL
-        run: echo "https://storage.googleapis.com/${{ env.BUCKET }}/index.html"
+        run: echo "https://${{ env.BUCKET }}.storage.googleapis.com/"
