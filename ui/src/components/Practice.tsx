@@ -3,7 +3,7 @@ import { getClassData, getAllQuestions } from '../data/curriculum';
 import { toBengaliNumber, toBengaliPercent, bengaliOptionLabels } from '../utils/bengali';
 import { saveSession } from '../api/client';
 import type { PracticeSession, SessionQuestion } from '../types';
-import type {ClassData,Chapter, Topic } from '../types';
+import type { ClassData, Question } from '../types';
 import { useEffect } from 'react';
 
 interface Props {
@@ -14,7 +14,7 @@ interface Props {
 type Stage = 'setup' | 'practicing' | 'results';
 
 interface QuizQuestion {
-  question: ReturnType<typeof getAllQuestions>[0]['question'];
+  question: Question;
   topicId: string;
   chapterId: string;
 }
@@ -30,7 +30,7 @@ export default function Practice({ classId, darkMode }: Props) {
   const [showSolution, setShowSolution] = useState(false);
   const [sessionId] = useState(() => Date.now().toString());
   const [classData, setClassData] = useState<ClassData | null>(null);
-  const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
+  const [selectedChapter, setSelectedChapter] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -181,7 +181,7 @@ export default function Practice({ classId, darkMode }: Props) {
             অধ্যায় (ঐচ্ছিক)
           </label>
           <select
-            value={selectedChapter}
+            value={selectedChapter ?? ''}
             onChange={e => { setSelectedChapter(e.target.value); setSelectedTopic(''); }}
             style={selectStyle as React.CSSProperties}
           >
