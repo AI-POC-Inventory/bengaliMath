@@ -1,11 +1,24 @@
 import type { PracticeSession, DoubtEntry } from '../types';
 
+export interface User {
+  id: number;
+  username: string;
+  displayName: string;
+  classId: number;
+  totalXp: number;
+  currentLevel: number;
+  streakCount: number;
+  longestStreak: number;
+  avatarUrl: string;
+}
+
 const KEYS = {
   CLASS: 'ganit_class',
   THEME: 'ganit_theme',
   SESSIONS: 'ganit_sessions',
   DOUBTS: 'ganit_doubts',
   API_KEY: 'ganit_api_key',
+  USER: 'ganit_user',
 };
 
 export function getSelectedClass(): number | null {
@@ -57,4 +70,21 @@ export function getApiKey(): string {
 
 export function setApiKey(key: string): void {
   localStorage.setItem(KEYS.API_KEY, key);
+}
+
+export function getCurrentUser(): User | null {
+  try {
+    const userStr = localStorage.getItem(KEYS.USER);
+    return userStr ? JSON.parse(userStr) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setCurrentUser(user: User): void {
+  localStorage.setItem(KEYS.USER, JSON.stringify(user));
+}
+
+export function clearCurrentUser(): void {
+  localStorage.removeItem(KEYS.USER);
 }

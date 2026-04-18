@@ -174,6 +174,643 @@ app.delete('/api/doubts/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// ── User Profile System ───────────────────────────────────────────────────
+app.post('/api/users', (req, res) => {
+  const { username, displayName, classId } = req.body;
+
+  if (!username || !displayName || !classId) {
+    return res.status(400).json({ error: 'username, displayName, and classId are required' });
+  }
+
+  try {
+    // Check if user already exists
+    const existingUser = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+
+    if (existingUser) {
+      // Update last_active and return existing user
+      db.prepare('UPDATE users SET last_active = datetime("now") WHERE id = ?').run(existingUser.id);
+      return res.json({
+        id: existingUser.id,
+        username: existingUser.username,
+        displayName: existingUser.display_name,
+        classId: existingUser.class_id,
+        totalXp: existingUser.total_xp,
+        currentLevel: existingUser.current_level,
+        streakCount: existingUser.streak_count,
+        longestStreak: existingUser.longest_streak,
+        avatarUrl: existingUser.avatar_url,
+      });
+    }
+
+    // Create new user
+    const result = db.prepare(`
+      INSERT INTO users (username, display_name, class_id, created_at, last_active)
+      VALUES (?, ?, ?, datetime('now'), datetime('now'))
+    `).run(username, displayName, classId);
+
+    const newUser = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+
+    res.json({
+      id: newUser.id,
+      username: newUser.username,
+      displayName: newUser.display_name,
+      classId: newUser.class_id,
+      totalXp: newUser.total_xp,
+      currentLevel: newUser.current_level,
+      streakCount: newUser.streak_count,
+      longestStreak: newUser.longest_streak,
+      avatarUrl: newUser.avatar_url,
+    });
+  } catch (error) {
+    console.error('Error creating/logging in user:', error);
+    res.status(500).json({ error: 'Failed to create/login user' });
+  }
+});
+
+app.get('/api/users/:id', (req, res) => {
+  const userId = parseInt(req.params.id);
+
+  try {
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      id: user.id,
+      username: user.username,
+      displayName: user.display_name,
+      classId: user.class_id,
+      createdAt: user.created_at,
+      lastActive: user.last_active,
+      totalXp: user.total_xp,
+      currentLevel: user.current_level,
+      streakCount: user.streak_count,
+      longestStreak: user.longest_streak,
+      lastPracticeDate: user.last_practice_date,
+      avatarUrl: user.avatar_url,
+    });
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    res.status(500).json({ error: 'Failed to fetch user' });
+  }
+});
+
+app.put('/api/users/:id', (req, res) => {
+  const userId = parseInt(req.params.id);
+  const { displayName, avatarUrl } = req.body;
+
+  try {
+    const updates = [];
+    const params = [];
+
+    if (displayName !== undefined) {
+      updates.push('display_name = ?');
+      params.push(displayName);
+    }
+
+    if (avatarUrl !== undefined) {
+      updates.push('avatar_url = ?');
+      params.push(avatarUrl);
+    }
+
+    updates.push('last_active = datetime("now")');
+
+    if (updates.length === 1) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    params.push(userId);
+
+    db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+
+    const updatedUser = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+
+    if (!updatedUser) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      id: updatedUser.id,
+      username: updatedUser.username,
+      displayName: updatedUser.display_name,
+      classId: updatedUser.class_id,
+      totalXp: updatedUser.total_xp,
+      currentLevel: updatedUser.current_level,
+      streakCount: updatedUser.streak_count,
+      longestStreak: updatedUser.longest_streak,
+      avatarUrl: updatedUser.avatar_url,
+    });
+  } catch (error) {
+    console.error('Error updating user:', error);
+    res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
+app.get('/api/users/:id/stats', (req, res) => {
+  const userId = parseInt(req.params.id);
+
+  try {
+    // Get user with level info using the view
+    const userStats = db.prepare('SELECT * FROM user_stats WHERE id = ?').get(userId);
+
+    if (!userStats) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Get recent badges (last 5)
+    const recentBadges = db.prepare(`
+      SELECT b.id, b.name_bengali, b.name_english, b.icon, ub.earned_at
+      FROM user_badges ub
+      JOIN badges b ON ub.badge_id = b.id
+      WHERE ub.user_id = ?
+      ORDER BY ub.earned_at DESC
+      LIMIT 5
+    `).all(userId);
+
+    // Get next level info
+    const nextLevel = db.prepare('SELECT * FROM levels WHERE level = ?').get(userStats.current_level + 1);
+
+    // Calculate XP progress to next level
+    const currentLevelXp = db.prepare('SELECT xp_required FROM levels WHERE level = ?').get(userStats.current_level);
+    const xpProgress = nextLevel
+      ? {
+          current: userStats.total_xp - (currentLevelXp?.xp_required || 0),
+          required: nextLevel.xp_required - (currentLevelXp?.xp_required || 0),
+        }
+      : null;
+
+    // Get recent streak activity (last 7 days)
+    const recentActivity = db.prepare(`
+      SELECT practice_date, questions_completed, questions_correct, xp_earned
+      FROM daily_streaks
+      WHERE user_id = ?
+      ORDER BY practice_date DESC
+      LIMIT 7
+    `).all(userId);
+
+    res.json({
+      user: {
+        id: userStats.id,
+        username: userStats.username,
+        displayName: userStats.display_name,
+        classId: userStats.class_id,
+        totalXp: userStats.total_xp,
+        currentLevel: userStats.current_level,
+        levelName: userStats.level_name,
+        streakCount: userStats.streak_count,
+        longestStreak: userStats.longest_streak,
+      },
+      stats: {
+        badgesEarned: userStats.badges_earned,
+        daysPracticed: userStats.days_practiced,
+        totalQuestions: userStats.total_questions,
+      },
+      progress: {
+        nextLevel: nextLevel ? {
+          level: nextLevel.level,
+          name: nextLevel.name_bengali,
+          icon: nextLevel.icon,
+        } : null,
+        xpProgress,
+      },
+      recentBadges,
+      recentActivity,
+    });
+  } catch (error) {
+    console.error('Error fetching user stats:', error);
+    res.status(500).json({ error: 'Failed to fetch user stats' });
+  }
+});
+
+// ── Streak Management ─────────────────────────────────────────────────────────
+app.get('/api/users/:id/streak', (req, res) => {
+  const userId = parseInt(req.params.id);
+
+  try {
+    const user = db.prepare('SELECT streak_count, longest_streak, last_practice_date FROM users WHERE id = ?').get(userId);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Get last 30 days of activity for calendar
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const startDate = thirtyDaysAgo.toISOString().split('T')[0];
+
+    const recentActivity = db.prepare(`
+      SELECT practice_date, questions_completed, questions_correct, xp_earned, session_count
+      FROM daily_streaks
+      WHERE user_id = ? AND practice_date >= ?
+      ORDER BY practice_date DESC
+    `).all(userId, startDate);
+
+    // Check if streak is still active (practiced today or yesterday)
+    const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+    const isActive = user.last_practice_date === today || user.last_practice_date === yesterdayStr;
+
+    res.json({
+      currentStreak: user.streak_count,
+      longestStreak: user.longest_streak,
+      lastPracticeDate: user.last_practice_date,
+      isActive,
+      recentActivity: recentActivity.map(day => ({
+        date: day.practice_date,
+        questionsCompleted: day.questions_completed,
+        questionsCorrect: day.questions_correct,
+        xpEarned: day.xp_earned,
+        sessionCount: day.session_count,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching streak:', error);
+    res.status(500).json({ error: 'Failed to fetch streak data' });
+  }
+});
+
+app.post('/api/users/:id/streak/record', (req, res) => {
+  const userId = parseInt(req.params.id);
+  const { questionsCompleted, questionsCorrect, xpEarned } = req.body;
+
+  if (!questionsCompleted || questionsCorrect === undefined || !xpEarned) {
+    return res.status(400).json({ error: 'questionsCompleted, questionsCorrect, and xpEarned are required' });
+  }
+
+  try {
+    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+
+    // Check if already recorded today
+    const todayRecord = db.prepare('SELECT * FROM daily_streaks WHERE user_id = ? AND practice_date = ?').get(userId, today);
+
+    if (todayRecord) {
+      // Update existing record
+      db.prepare(`
+        UPDATE daily_streaks
+        SET questions_completed = questions_completed + ?,
+            questions_correct = questions_correct + ?,
+            xp_earned = xp_earned + ?,
+            session_count = session_count + 1
+        WHERE user_id = ? AND practice_date = ?
+      `).run(questionsCompleted, questionsCorrect, xpEarned, userId, today);
+    } else {
+      // Create new record
+      db.prepare(`
+        INSERT INTO daily_streaks (user_id, practice_date, questions_completed, questions_correct, xp_earned, session_count)
+        VALUES (?, ?, ?, ?, ?, 1)
+      `).run(userId, today, questionsCompleted, questionsCorrect, xpEarned);
+    }
+
+    // Calculate new streak
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+    let newStreak = 1;
+    let currentDate = yesterday;
+
+    // Count consecutive days backwards from yesterday
+    while (true) {
+      const dateStr = currentDate.toISOString().split('T')[0];
+      const record = db.prepare('SELECT * FROM daily_streaks WHERE user_id = ? AND practice_date = ?').get(userId, dateStr);
+
+      if (!record) break;
+
+      newStreak++;
+      currentDate.setDate(currentDate.getDate() - 1);
+    }
+
+    // Update user streak
+    const longestStreak = Math.max(user.longest_streak, newStreak);
+
+    db.prepare(`
+      UPDATE users
+      SET streak_count = ?,
+          longest_streak = ?,
+          last_practice_date = ?,
+          total_xp = total_xp + ?,
+          last_active = datetime('now')
+      WHERE id = ?
+    `).run(newStreak, longestStreak, today, xpEarned, userId);
+
+    // Add XP transaction
+    db.prepare(`
+      INSERT INTO xp_transactions (user_id, amount, reason, created_at)
+      VALUES (?, ?, ?, datetime('now'))
+    `).run(userId, xpEarned, 'practice_session');
+
+    // Check for level up
+    const updatedUser = db.prepare('SELECT total_xp, current_level FROM users WHERE id = ?').get(userId);
+    const nextLevel = db.prepare('SELECT level FROM levels WHERE xp_required <= ? ORDER BY level DESC LIMIT 1').get(updatedUser.total_xp);
+
+    if (nextLevel && nextLevel.level > updatedUser.current_level) {
+      db.prepare('UPDATE users SET current_level = ? WHERE id = ?').run(nextLevel.level, userId);
+    }
+
+    // Check for streak badges
+    const newBadges = [];
+    const streakBadges = [
+      { id: 'streak_3', threshold: 3 },
+      { id: 'streak_7', threshold: 7 },
+      { id: 'streak_30', threshold: 30 },
+      { id: 'streak_100', threshold: 100 },
+    ];
+
+    for (const badge of streakBadges) {
+      if (newStreak >= badge.threshold) {
+        const alreadyHas = db.prepare('SELECT * FROM user_badges WHERE user_id = ? AND badge_id = ?').get(userId, badge.id);
+        if (!alreadyHas) {
+          db.prepare(`
+            INSERT INTO user_badges (user_id, badge_id, earned_at)
+            VALUES (?, ?, datetime('now'))
+          `).run(userId, badge.id);
+
+          const badgeInfo = db.prepare('SELECT name_bengali, icon FROM badges WHERE id = ?').get(badge.id);
+          if (badgeInfo) {
+            newBadges.push({ id: badge.id, ...badgeInfo });
+          }
+        }
+      }
+    }
+
+    res.json({
+      ok: true,
+      streak: newStreak,
+      longestStreak,
+      newBadges,
+      leveledUp: nextLevel && nextLevel.level > updatedUser.current_level,
+      newLevel: nextLevel ? nextLevel.level : updatedUser.current_level,
+    });
+  } catch (error) {
+    console.error('Error recording streak:', error);
+    res.status(500).json({ error: 'Failed to record streak' });
+  }
+});
+
+// ── Mistake Notebook ──────────────────────────────────────────────────────────
+app.get('/api/users/:id/mistakes', (req, res) => {
+  const userId = parseInt(req.params.id);
+  const { topicId, chapterId, masteredOnly } = req.query;
+
+  try {
+    let query = `
+      SELECT m.*, q.text as question_text, q.type as question_type,
+             q.answer as correct_answer, q.difficulty,
+             t.name as topic_name, c.name as chapter_name
+      FROM mistake_records m
+      JOIN questions q ON m.question_id = q.id
+      JOIN topics t ON m.topic_id = t.id
+      JOIN chapters c ON m.chapter_id = c.id
+      WHERE m.user_id = ?
+    `;
+
+    const params = [userId];
+
+    if (topicId) {
+      query += ' AND m.topic_id = ?';
+      params.push(topicId);
+    }
+
+    if (chapterId) {
+      query += ' AND m.chapter_id = ?';
+      params.push(chapterId);
+    }
+
+    if (masteredOnly === 'true') {
+      query += ' AND m.mastered = 1';
+    } else if (masteredOnly === 'false') {
+      query += ' AND m.mastered = 0';
+    }
+
+    query += ' ORDER BY m.last_failed_date DESC';
+
+    const mistakes = db.prepare(query).all(...params);
+
+    // Get summary statistics
+    const stats = db.prepare(`
+      SELECT
+        COUNT(*) as total_mistakes,
+        SUM(CASE WHEN mastered = 1 THEN 1 ELSE 0 END) as mastered_count,
+        SUM(CASE WHEN mastered = 0 THEN 1 ELSE 0 END) as pending_count,
+        AVG(times_failed) as avg_attempts
+      FROM mistake_records
+      WHERE user_id = ?
+    `).get(userId);
+
+    // Get mistakes by topic
+    const byTopic = db.prepare(`
+      SELECT t.id, t.name, COUNT(*) as mistake_count,
+             SUM(CASE WHEN m.mastered = 0 THEN 1 ELSE 0 END) as pending
+      FROM mistake_records m
+      JOIN topics t ON m.topic_id = t.id
+      WHERE m.user_id = ?
+      GROUP BY t.id, t.name
+      ORDER BY mistake_count DESC
+    `).all(userId);
+
+    res.json({
+      mistakes: mistakes.map(m => ({
+        id: m.id,
+        questionId: m.question_id,
+        questionText: m.question_text,
+        questionType: m.question_type,
+        correctAnswer: m.correct_answer,
+        difficulty: m.difficulty,
+        topicId: m.topic_id,
+        topicName: m.topic_name,
+        chapterId: m.chapter_id,
+        chapterName: m.chapter_name,
+        firstAttemptDate: m.first_attempt_date,
+        timesFailed: m.times_failed,
+        lastFailedDate: m.last_failed_date,
+        mastered: Boolean(m.mastered),
+        masteredDate: m.mastered_date,
+      })),
+      stats: {
+        total: stats?.total_mistakes || 0,
+        mastered: stats?.mastered_count || 0,
+        pending: stats?.pending_count || 0,
+        avgAttempts: stats?.avg_attempts || 0,
+      },
+      byTopic: byTopic.map(t => ({
+        topicId: t.id,
+        topicName: t.name,
+        mistakeCount: t.mistake_count,
+        pending: t.pending,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching mistakes:', error);
+    res.status(500).json({ error: 'Failed to fetch mistakes' });
+  }
+});
+
+app.post('/api/users/:id/mistakes', (req, res) => {
+  const userId = parseInt(req.params.id);
+  const { questionId, topicId, chapterId } = req.body;
+
+  if (!questionId || !topicId || !chapterId) {
+    return res.status(400).json({ error: 'questionId, topicId, and chapterId are required' });
+  }
+
+  try {
+    const today = new Date().toISOString().split('T')[0];
+
+    // Check if mistake already exists
+    const existing = db.prepare('SELECT * FROM mistake_records WHERE user_id = ? AND question_id = ?').get(userId, questionId);
+
+    if (existing) {
+      // Update existing mistake
+      db.prepare(`
+        UPDATE mistake_records
+        SET times_failed = times_failed + 1,
+            last_failed_date = ?,
+            mastered = 0,
+            mastered_date = NULL
+        WHERE user_id = ? AND question_id = ?
+      `).run(today, userId, questionId);
+    } else {
+      // Create new mistake record
+      db.prepare(`
+        INSERT INTO mistake_records (user_id, question_id, chapter_id, topic_id, first_attempt_date, last_failed_date)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(userId, questionId, chapterId, topicId, today, today);
+    }
+
+    // Check if should add to review schedule (spaced repetition)
+    const reviewExists = db.prepare('SELECT * FROM review_schedule WHERE user_id = ? AND question_id = ?').get(userId, questionId);
+
+    if (!reviewExists) {
+      // Add to review schedule with 1-day interval
+      const nextReview = new Date();
+      nextReview.setDate(nextReview.getDate() + 1);
+
+      db.prepare(`
+        INSERT INTO review_schedule (user_id, question_id, next_review_date, interval_days)
+        VALUES (?, ?, ?, ?)
+      `).run(userId, questionId, nextReview.toISOString().split('T')[0], 1);
+    } else {
+      // Reset interval to 1 day (failed again)
+      const nextReview = new Date();
+      nextReview.setDate(nextReview.getDate() + 1);
+
+      db.prepare(`
+        UPDATE review_schedule
+        SET next_review_date = ?,
+            interval_days = 1,
+            ease_factor = GREATEST(1.3, ease_factor - 0.2)
+        WHERE user_id = ? AND question_id = ?
+      `).run(nextReview.toISOString().split('T')[0], userId, questionId);
+    }
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error recording mistake:', error);
+    res.status(500).json({ error: 'Failed to record mistake' });
+  }
+});
+
+app.put('/api/users/:id/mistakes/:questionId/master', (req, res) => {
+  const userId = parseInt(req.params.id);
+  const questionId = req.params.questionId;
+
+  try {
+    const today = new Date().toISOString().split('T')[0];
+
+    // Mark mistake as mastered
+    const result = db.prepare(`
+      UPDATE mistake_records
+      SET mastered = 1,
+          mastered_date = ?
+      WHERE user_id = ? AND question_id = ?
+    `).run(today, userId, questionId);
+
+    if (result.changes === 0) {
+      return res.status(404).json({ error: 'Mistake record not found' });
+    }
+
+    // Update review schedule - increase interval
+    const review = db.prepare('SELECT * FROM review_schedule WHERE user_id = ? AND question_id = ?').get(userId, questionId);
+
+    if (review) {
+      // Calculate next interval using spaced repetition
+      const intervals = [1, 3, 7, 14, 30, 60, 120];
+      const currentIndex = intervals.indexOf(review.interval_days);
+      const nextInterval = currentIndex >= 0 && currentIndex < intervals.length - 1
+        ? intervals[currentIndex + 1]
+        : 120; // Max 120 days
+
+      const nextReview = new Date();
+      nextReview.setDate(nextReview.getDate() + nextInterval);
+
+      db.prepare(`
+        UPDATE review_schedule
+        SET next_review_date = ?,
+            interval_days = ?,
+            ease_factor = LEAST(2.5, ease_factor + 0.1)
+        WHERE user_id = ? AND question_id = ?
+      `).run(nextReview.toISOString().split('T')[0], nextInterval, userId, questionId);
+    }
+
+    res.json({ ok: true, nextReviewInterval: review?.interval_days });
+  } catch (error) {
+    console.error('Error mastering mistake:', error);
+    res.status(500).json({ error: 'Failed to master mistake' });
+  }
+});
+
+app.get('/api/users/:id/reviews/due', (req, res) => {
+  const userId = parseInt(req.params.id);
+
+  try {
+    const today = new Date().toISOString().split('T')[0];
+
+    const dueReviews = db.prepare(`
+      SELECT r.*, q.text as question_text, q.type as question_type,
+             q.answer as correct_answer, q.difficulty,
+             t.name as topic_name, c.name as chapter_name,
+             m.times_failed, m.mastered
+      FROM review_schedule r
+      JOIN questions q ON r.question_id = q.id
+      JOIN topics t ON q.topic_id = t.id
+      JOIN chapters c ON t.chapter_id = c.id
+      LEFT JOIN mistake_records m ON m.user_id = r.user_id AND m.question_id = r.question_id
+      WHERE r.user_id = ? AND r.next_review_date <= ? AND COALESCE(m.mastered, 0) = 0
+      ORDER BY r.next_review_date ASC
+    `).all(userId, today);
+
+    res.json({
+      dueCount: dueReviews.length,
+      reviews: dueReviews.map(r => ({
+        questionId: r.question_id,
+        questionText: r.question_text,
+        questionType: r.question_type,
+        correctAnswer: r.correct_answer,
+        difficulty: r.difficulty,
+        topicName: r.topic_name,
+        chapterName: r.chapter_name,
+        nextReviewDate: r.next_review_date,
+        intervalDays: r.interval_days,
+        timesFailed: r.times_failed || 0,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching due reviews:', error);
+    res.status(500).json({ error: 'Failed to fetch due reviews' });
+  }
+});
+
 // ── Curriculum Reading Endpoints ──────────────────────────────────────────────
 app.get('/class/:classId', (req, res) => {
   const classId = parseInt(req.params.classId);
