@@ -46,7 +46,7 @@ export default function MistakeNotebook({ userId, darkMode, onRetryQuestion }: P
   const [stats, setStats] = useState<MistakeStats | null>(null);
   const [topicStats, setTopicStats] = useState<TopicStats[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [_error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'pending' | 'mastered'>('pending');
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [expandedMistake, setExpandedMistake] = useState<number | null>(null);

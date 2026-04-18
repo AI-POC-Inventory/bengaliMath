@@ -3,8 +3,6 @@
  * Helper functions for calculating, formatting, and managing user XP
  */
 
-const API_BASE = 'http://localhost:3001';
-
 // XP calculation constants
 export const XP_PER_CORRECT_ANSWER = 10;
 export const XP_PERFECT_BONUS_MULTIPLIER = 2;

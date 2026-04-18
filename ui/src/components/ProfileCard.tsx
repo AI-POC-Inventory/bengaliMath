@@ -340,7 +340,6 @@ function StatCard({
   accent: string;
 }) {
   const bg = darkMode ? '#1a365d' : '#f7fafc';
-  const text = darkMode ? '#e2e8f0' : '#1e293b';
   const subText = darkMode ? '#94a3b8' : '#64748b';
 
   return (

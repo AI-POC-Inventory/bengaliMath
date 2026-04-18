@@ -22,8 +22,6 @@ interface Props {
   compact?: boolean;
 }
 
-const API_BASE = 'http://localhost:3001';
-
 export default function ReviewSchedule({ userId, darkMode, onStartReview, compact = false }: Props) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [recommendation, setRecommendation] = useState<any>(null);
