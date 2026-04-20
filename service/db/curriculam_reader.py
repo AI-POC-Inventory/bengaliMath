@@ -1,8 +1,25 @@
+import time
+import logging
+
 from supabase_client import supabase
+
+logger = logging.getLogger(__name__)
+
+
+def _timed(label: str, fn):
+    t0 = time.perf_counter()
+    result = fn()
+    elapsed = time.perf_counter() - t0
+    logger.debug("[LATENCY] %-55s %.3fs", label, elapsed)
+    return result
 
 
 def get_class_data(class_id: int):
-    cls_row = supabase.table("classes").select("*").eq("id", class_id).limit(1).execute().data
+    total_start = time.perf_counter()
+    query_count = 0
+
+    cls_row = _timed(f"classes  class_id={class_id}", lambda: supabase.table("classes").select("*").eq("id", class_id).limit(1).execute().data)
+    query_count += 1
     if not cls_row:
         return None
 
@@ -14,7 +31,9 @@ def get_class_data(class_id: int):
         "chapters": []
     }
 
-    chapters = supabase.table("chapters").select("*").eq("class_id", class_id).execute().data
+    chapters = _timed(f"chapters class_id={class_id}", lambda: supabase.table("chapters").select("*").eq("class_id", class_id).execute().data)
+    query_count += 1
+    logger.debug("[LATENCY] chapters returned: %d", len(chapters))
 
     for ch in chapters:
         chapter_data = {
@@ -24,7 +43,9 @@ def get_class_data(class_id: int):
             "topics": []
         }
 
-        topics = supabase.table("topics").select("*").eq("chapter_id", ch["id"]).execute().data
+        topics = _timed(f"topics   chapter_id={ch['id']} ({ch['name']!r})", lambda cid=ch["id"]: supabase.table("topics").select("*").eq("chapter_id", cid).execute().data)
+        query_count += 1
+        logger.debug("[LATENCY]   topics returned: %d", len(topics))
 
         for t in topics:
             topic_data = {
@@ -34,7 +55,9 @@ def get_class_data(class_id: int):
                 "questions": []
             }
 
-            questions = supabase.table("questions").select("*").eq("topic_id", t["id"]).execute().data
+            questions = _timed(f"questions topic_id={t['id']} ({t['name']!r})", lambda tid=t["id"]: supabase.table("questions").select("*").eq("topic_id", tid).execute().data)
+            query_count += 1
+            logger.debug("[LATENCY]     questions returned: %d", len(questions))
 
             for q in questions:
                 question_data = {
@@ -47,7 +70,8 @@ def get_class_data(class_id: int):
                 }
 
                 if q["type"] == "mcq":
-                    opts = supabase.table("options").select("option_text").eq("question_id", q["id"]).execute().data
+                    opts = _timed(f"options  question_id={q['id']}", lambda qid=q["id"]: supabase.table("options").select("option_text").eq("question_id", qid).execute().data)
+                    query_count += 1
                     question_data["options"] = [o["option_text"] for o in opts]
 
                 topic_data["questions"].append(question_data)
@@ -56,6 +80,8 @@ def get_class_data(class_id: int):
 
         class_data["chapters"].append(chapter_data)
 
+    total = time.perf_counter() - total_start
+    logger.debug("[LATENCY] *** get_class_data total=%.3fs  queries=%d ***", total, query_count)
     return class_data
 
 
