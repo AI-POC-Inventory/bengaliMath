@@ -10,7 +10,9 @@ from flask_cors import CORS
 load_dotenv()
 
 import logging
+import time
 logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s %(message)s")
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
@@ -18,6 +20,19 @@ app = Flask(__name__)
 _raw_origins = os.environ.get("CORS_ORIGINS", "http://localhost:5173")
 _allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 CORS(app, origins=_allowed_origins)
+
+
+@app.before_request
+def _start_timer():
+    request._start_time = time.perf_counter()
+
+
+@app.after_request
+def _log_latency(response):
+    elapsed = time.perf_counter() - request._start_time
+    logger.debug("[API] %s %s  status=%d  %.3fs", request.method, request.full_path, response.status_code, elapsed)
+    return response
+
 
 # ── ROUTES ────────────────────────────────────────────────────────────────
 
