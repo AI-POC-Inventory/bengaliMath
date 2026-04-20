@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { getClassData, getAllQuestions } from '../data/curriculum';
 import { toBengaliNumber, toBengaliPercent, bengaliOptionLabels } from '../utils/bengali';
-import { saveSession } from '../api/client';
+import { saveSession, recordMistake } from '../api/client';
+import { getCurrentUser } from '../utils/storage';
 import type { PracticeSession, SessionQuestion } from '../types';
 import type {ClassData,Chapter, Topic } from '../types';
 import { useEffect } from 'react';
@@ -29,6 +30,7 @@ export default function Practice({ classId, darkMode }: Props) {
   const [sessionAnswers, setSessionAnswers] = useState<SessionQuestion[]>([]);
   const [showSolution, setShowSolution] = useState(false);
   const [sessionId] = useState(() => Date.now().toString());
+  const [shortAnswerInput, setShortAnswerInput] = useState('');
   const [classData, setClassData] = useState<ClassData | null>(null);
   const [selectedChapter, setSelectedChapter] = useState<Chapter | null>(null);
   const [loading, setLoading] = useState(true);
@@ -91,17 +93,38 @@ export default function Practice({ classId, darkMode }: Props) {
     setAnswered(null);
     setShowSolution(false);
     setSessionAnswers([]);
+    setShortAnswerInput('');
     setStage('practicing');
   }
 
-  function handleAnswer(choice: number | string) {
+  async function handleAnswer(choice: number | string) {
     if (answered !== null) return;
     setAnswered(choice);
     setShowSolution(true);
     const q = questions[currentIdx];
-    const correct = q.question.type === 'mcq'
-      ? choice === q.question.answer
-      : true; // for short answer, we show the answer
+
+    let correct = false;
+    if (q.question.type === 'mcq') {
+      correct = choice === q.question.answer;
+    } else {
+      // For short answer, compare the student's answer with the correct answer
+      const studentAnswer = String(choice).trim().toLowerCase();
+      const correctAnswer = String(q.question.answer).trim().toLowerCase();
+      correct = studentAnswer === correctAnswer;
+    }
+
+    // Record mistake if answer is incorrect
+    if (!correct) {
+      const currentUser = getCurrentUser();
+      if (currentUser) {
+        try {
+          await recordMistake(currentUser.id, q.question.id, q.topicId, q.chapterId);
+        } catch (err) {
+          console.error('Failed to record mistake:', err);
+        }
+      }
+    }
+
     setSessionAnswers(prev => [...prev, {
       questionId: q.question.id,
       topicId: q.topicId,
@@ -119,6 +142,7 @@ export default function Practice({ classId, darkMode }: Props) {
     setCurrentIdx(i => i + 1);
     setAnswered(null);
     setShowSolution(false);
+    setShortAnswerInput('');
   }
 
   async function finishSession(completed: boolean) {
@@ -318,7 +342,11 @@ export default function Practice({ classId, darkMode }: Props) {
           </p>
 
           <button
-            onClick={() => { setStage('setup'); setQuestions([]); }}
+            onClick={() => {
+              setStage('setup');
+              setQuestions([]);
+              setShortAnswerInput('');
+            }}
             style={{
               width: '100%',
               padding: '0.9rem',
@@ -469,39 +497,94 @@ export default function Practice({ classId, darkMode }: Props) {
           })}
         </div>
       ) : (
-        /* Short answer - show answer directly */
+        /* Short answer - input field for student answer */
         <div style={{ marginBottom: '1.5rem' }}>
           {answered === null ? (
-            <button
-              onClick={() => handleAnswer('shown')}
-              style={{
-                width: '100%',
-                padding: '0.9rem',
-                background: '#3b82f620',
-                border: `2px solid #3b82f6`,
-                borderRadius: '0.8rem',
-                color: '#3b82f6',
-                fontFamily: "'Hind Siliguri', 'Noto Sans Bengali', sans-serif",
-                fontSize: '1rem',
-                fontWeight: '600',
-                cursor: 'pointer',
-              }}
-            >
-              উত্তর দেখুন
-            </button>
+            <div style={{ display: 'flex', gap: '0.7rem' }}>
+              <input
+                type="text"
+                value={shortAnswerInput}
+                onChange={(e) => setShortAnswerInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && shortAnswerInput.trim()) {
+                    handleAnswer(shortAnswerInput);
+                  }
+                }}
+                placeholder="আপনার উত্তর এখানে লিখুন..."
+                style={{
+                  flex: 1,
+                  padding: '0.9rem 1.2rem',
+                  background: inputBg,
+                  border: `2px solid ${border}`,
+                  borderRadius: '0.8rem',
+                  color: text,
+                  fontFamily: "'Hind Siliguri', 'Noto Sans Bengali', sans-serif",
+                  fontSize: '1rem',
+                  outline: 'none',
+                }}
+              />
+              <button
+                onClick={() => shortAnswerInput.trim() && handleAnswer(shortAnswerInput)}
+                disabled={!shortAnswerInput.trim()}
+                style={{
+                  padding: '0.9rem 1.5rem',
+                  background: shortAnswerInput.trim() ? '#3b82f6' : border,
+                  border: 'none',
+                  borderRadius: '0.8rem',
+                  color: shortAnswerInput.trim() ? 'white' : subText,
+                  fontFamily: "'Hind Siliguri', 'Noto Sans Bengali', sans-serif",
+                  fontSize: '1rem',
+                  fontWeight: '600',
+                  cursor: shortAnswerInput.trim() ? 'pointer' : 'not-allowed',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                জমা দিন
+              </button>
+            </div>
           ) : (
-            <div style={{
-              background: '#10b98120',
-              border: `2px solid #10b981`,
-              borderRadius: '0.8rem',
-              padding: '1rem 1.2rem',
-            }}>
-              <div style={{ color: '#10b981', fontWeight: '600', marginBottom: '0.3rem', fontSize: '0.9rem' }}>
-                উত্তর:
+            <div>
+              {/* Student's answer */}
+              <div style={{
+                background: answered === currentQ.question.answer ? '#10b98120' : '#ef444420',
+                border: `2px solid ${answered === currentQ.question.answer ? '#10b981' : '#ef4444'}`,
+                borderRadius: '0.8rem',
+                padding: '1rem 1.2rem',
+                marginBottom: '0.7rem',
+              }}>
+                <div style={{
+                  color: answered === currentQ.question.answer ? '#10b981' : '#ef4444',
+                  fontWeight: '600',
+                  marginBottom: '0.3rem',
+                  fontSize: '0.9rem',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                }}>
+                  {answered === currentQ.question.answer ? '✓ সঠিক!' : '✗ ভুল'}
+                  <span style={{ marginLeft: 'auto', fontSize: '0.85rem', fontWeight: '400' }}>আপনার উত্তর:</span>
+                </div>
+                <div style={{ color: text, fontSize: '1rem' }}>
+                  {answered as string}
+                </div>
               </div>
-              <div style={{ color: text, fontSize: '1rem' }}>
-                {currentQ.question.answer as string}
-              </div>
+
+              {/* Correct answer (shown if student was wrong) */}
+              {answered !== currentQ.question.answer && (
+                <div style={{
+                  background: '#10b98120',
+                  border: `2px solid #10b981`,
+                  borderRadius: '0.8rem',
+                  padding: '1rem 1.2rem',
+                }}>
+                  <div style={{ color: '#10b981', fontWeight: '600', marginBottom: '0.3rem', fontSize: '0.9rem' }}>
+                    সঠিক উত্তর:
+                  </div>
+                  <div style={{ color: text, fontSize: '1rem' }}>
+                    {currentQ.question.answer as string}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

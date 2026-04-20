@@ -133,6 +133,15 @@ export const updateAdminQuestion = (id: string, q: Omit<AdminQuestion, 'id' | 't
 export const deleteAdminQuestion = (id: string) =>
   fetchJSON(`${BASE}/admin/questions/${id}`, { method: 'DELETE' });
 
+// ── Mistakes ──────────────────────────────────────────────────────────────────
+export function recordMistake(userId: number, questionId: string, topicId: string, chapterId: string): Promise<void> {
+  return fetchJSON(`${BASE.replace('/api', '')}/api/users/${userId}/mistakes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ questionId, topicId, chapterId }),
+  });
+}
+
 // ── Anthropic streaming proxy ─────────────────────────────────────────────────
 // Flask route:  POST /api/doubts/ask          →  askDoubt()
 
