@@ -17,7 +17,7 @@ def _timed(label: str, fn):
 def get_class_data(class_id: int):
     total_start = time.perf_counter()
     query_count = 0
-
+    
     cls_row = _timed(f"classes  class_id={class_id}", lambda: supabase.table("classes").select("*").eq("id", class_id).limit(1).execute().data)
     query_count += 1
     if not cls_row:

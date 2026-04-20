@@ -9,6 +9,9 @@ from flask_cors import CORS
 
 load_dotenv()
 
+import logging
+logging.basicConfig(level=logging.DEBUG, format="%(levelname)s %(name)s %(message)s")
+
 app = Flask(__name__)
 
 # Allow origins from env var (comma-separated) or fall back to localhost dev
