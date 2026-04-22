@@ -7,6 +7,9 @@ import DoubtSolver from './components/DoubtSolver';
 import Progress from './components/Progress';
 import History from './components/History';
 import Admin from './components/Admin';
+import WordProblemGenerator from './components/WordProblemGenerator';
+import UseCaseCards from './components/UseCaseCards';
+import DailyPuzzle from './components/DailyPuzzle';
 import { getPreferences, setPreference } from './api/client';
 import type { NavSection } from './types';
 
@@ -70,6 +73,9 @@ export default function App() {
       case 'progress': return <Progress classId={selectedClass} darkMode={darkMode} />;
       case 'history':  return <History classId={selectedClass} darkMode={darkMode} />;
       case 'admin':    return <Admin darkMode={darkMode} />;
+      case 'word-problems': return <WordProblemGenerator classId={selectedClass} darkMode={darkMode} />;
+      case 'use-cases': return <UseCaseCards classId={selectedClass} darkMode={darkMode} />;
+      case 'daily-puzzle': return <DailyPuzzle darkMode={darkMode} />;
     }
   };
 
