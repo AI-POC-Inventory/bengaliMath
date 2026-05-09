@@ -3,7 +3,7 @@ name: Deploy UI to Cloud Storage
 on:
   push:
     branches:
-      - main
+      - feature/student-answer-input
     paths:
       - 'ui/**'
       - '.github/workflows/deploy-ui.yml'
