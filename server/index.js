@@ -1282,6 +1282,390 @@ app.post('/api/admin/upload-pdf', upload.single('pdf'), async (req, res) => {
   }
 });
 
+// ── Real-world Connection Features ───────────────────────────────────────────
+
+// Get available problem contexts
+app.get('/api/word-problems/contexts', (_req, res) => {
+  const contexts = db.prepare('SELECT * FROM problem_contexts').all();
+  res.json(contexts);
+});
+
+// Generate a word problem using AI
+app.post('/api/word-problems/generate', async (req, res) => {
+  try {
+    const { topicId, chapterId, classId, contextType, difficulty } = req.body;
+
+    if (!topicId || !classId) {
+      return res.status(400).json({ error: 'topicId and classId are required' });
+    }
+
+    // Get API key from preferences
+    const apiKeyRow = db.prepare('SELECT value FROM preferences WHERE key = ?').get('api_key');
+    if (!apiKeyRow || !apiKeyRow.value) {
+      return res.status(400).json({ error: 'Claude API key not configured. Please set it in preferences.' });
+    }
+
+    // Get topic details
+    const topic = db.prepare('SELECT * FROM topics WHERE id = ?').get(topicId);
+    if (!topic) {
+      return res.status(404).json({ error: 'Topic not found' });
+    }
+
+    // Get context info
+    const context = contextType
+      ? db.prepare('SELECT * FROM problem_contexts WHERE id = ?').get(contextType)
+      : null;
+
+    const anthropic = new Anthropic({ apiKey: apiKeyRow.value });
+
+    const prompt = `তুমি একজন বাংলাদেশী গণিত শিক্ষক। একটি বাস্তব জীবনভিত্তিক গণিত সমস্যা তৈরি করো।
+
+বিষয়: ${topic.name}
+শ্রেণী: ${classId}
+${context ? `প্রসঙ্গ: ${context.name_bengali} (${context.description})` : ''}
+${difficulty ? `কঠিনতা: ${difficulty}` : ''}
+
+নির্দেশনা:
+1. সম্পূর্ণ বাংলায় একটি বাস্তব জীবনের সমস্যা লেখো
+2. বাংলাদেশী প্রেক্ষাপট ব্যবহার করো (বাজার, রিকশা ভাড়া, জমির পরিমাপ ইত্যাদি)
+3. সমস্যাটি ${topic.name} বিষয়ের সাথে সম্পর্কিত হতে হবে
+4. সমাধান ধাপে ধাপে বাংলায় ব্যাখ্যা করো
+
+JSON ফরম্যাটে উত্তর দাও:
+{
+  "problem": "সমস্যার বিবরণ",
+  "answer": "উত্তর",
+  "solution_steps": ["ধাপ ১", "ধাপ ২", "..."]
+}`;
+
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2048,
+      messages: [{
+        role: 'user',
+        content: prompt
+      }]
+    });
+
+    const responseText = message.content[0].text;
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    const generatedProblem = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
+
+    // Save to database
+    const problemId = `wp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    db.prepare(`
+      INSERT INTO word_problems (
+        id, topic_id, chapter_id, class_id, problem_bengali,
+        context_type, difficulty, answer, solution_bengali, generated_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      problemId,
+      topicId,
+      chapterId || '',
+      classId,
+      generatedProblem.problem,
+      contextType || 'general',
+      difficulty || 'medium',
+      generatedProblem.answer,
+      JSON.stringify(generatedProblem.solution_steps),
+      'ai'
+    );
+
+    res.json({
+      id: problemId,
+      ...generatedProblem,
+      contextType: contextType || 'general',
+      difficulty: difficulty || 'medium'
+    });
+
+  } catch (error) {
+    console.error('Word problem generation error:', error);
+    res.status(500).json({
+      error: 'Failed to generate word problem',
+      details: error.message
+    });
+  }
+});
+
+// Get word problems for a topic
+app.get('/api/word-problems', (req, res) => {
+  const { topicId, classId, contextType, difficulty } = req.query;
+
+  let query = 'SELECT * FROM word_problems WHERE 1=1';
+  const params = [];
+
+  if (topicId) {
+    query += ' AND topic_id = ?';
+    params.push(topicId);
+  }
+  if (classId) {
+    query += ' AND class_id = ?';
+    params.push(parseInt(classId));
+  }
+  if (contextType) {
+    query += ' AND context_type = ?';
+    params.push(contextType);
+  }
+  if (difficulty) {
+    query += ' AND difficulty = ?';
+    params.push(difficulty);
+  }
+
+  query += ' ORDER BY created_at DESC LIMIT 20';
+
+  const problems = db.prepare(query).all(...params);
+
+  // Parse solution_bengali JSON
+  const formattedProblems = problems.map(p => ({
+    ...p,
+    solution_steps: JSON.parse(p.solution_bengali || '[]')
+  }));
+
+  res.json(formattedProblems);
+});
+
+// Get "কেন শিখব?" card for a topic
+app.get('/api/topic-applications/:topicId', (req, res) => {
+  const { topicId } = req.params;
+  const application = db.prepare('SELECT * FROM topic_applications WHERE topic_id = ?').get(topicId);
+
+  if (!application) {
+    return res.status(404).json({ error: 'Application not found for this topic' });
+  }
+
+  res.json(application);
+});
+
+// Generate "কেন শিখব?" card using AI
+app.post('/api/topic-applications/generate', async (req, res) => {
+  try {
+    const { topicId } = req.body;
+
+    if (!topicId) {
+      return res.status(400).json({ error: 'topicId is required' });
+    }
+
+    // Get API key
+    const apiKeyRow = db.prepare('SELECT value FROM preferences WHERE key = ?').get('api_key');
+    if (!apiKeyRow || !apiKeyRow.value) {
+      return res.status(400).json({ error: 'Claude API key not configured' });
+    }
+
+    // Get topic details
+    const topic = db.prepare('SELECT * FROM topics WHERE id = ?').get(topicId);
+    if (!topic) {
+      return res.status(404).json({ error: 'Topic not found' });
+    }
+
+    const anthropic = new Anthropic({ apiKey: apiKeyRow.value });
+
+    const prompt = `তুমি একজন বাংলাদেশী গণিত শিক্ষক। "${topic.name}" বিষয়টি কেন শিখতে হবে তা ব্যাখ্যা করো।
+
+নির্দেশনা:
+1. একটি আকর্ষণীয় শিরোনাম দাও
+2. বাস্তব জীবনে এর ব্যবহার ব্যাখ্যা করো (২-৩ বাক্যে)
+3. একটি সুনির্দিষ্ট উদাহরণ দাও (যেমন: "শতকরা জানলে দোকানে ছাড় বুঝতে পারবে")
+4. কোন পেশায় এটি কাজে লাগে তা উল্লেখ করো
+
+JSON ফরম্যাটে উত্তর দাও:
+{
+  "title": "শিরোনাম",
+  "description": "বিস্তারিত ব্যাখ্যা",
+  "example": "বাস্তব উদাহরণ",
+  "profession": "পেশার নাম",
+  "icon": "উপযুক্ত ইমোজি"
+}`;
+
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: prompt
+      }]
+    });
+
+    const responseText = message.content[0].text;
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    const generated = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
+
+    // Save to database
+    db.prepare(`
+      INSERT OR REPLACE INTO topic_applications (
+        topic_id, title_bengali, description_bengali,
+        real_world_example, profession_bengali, icon
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      topicId,
+      generated.title,
+      generated.description,
+      generated.example,
+      generated.profession || '',
+      generated.icon || '💡'
+    );
+
+    res.json({
+      topicId,
+      ...generated
+    });
+
+  } catch (error) {
+    console.error('Topic application generation error:', error);
+    res.status(500).json({
+      error: 'Failed to generate topic application',
+      details: error.message
+    });
+  }
+});
+
+// Get today's puzzle
+app.get('/api/daily-puzzle/today', (req, res) => {
+  const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+  const puzzle = db.prepare('SELECT * FROM daily_puzzles WHERE date = ?').get(today);
+
+  if (!puzzle) {
+    return res.json({ puzzle: null });
+  }
+
+  // Don't send answer and explanation until solved
+  const { answer, explanation_bengali, ...puzzleData } = puzzle;
+  res.json({ puzzle: puzzleData });
+});
+
+// Generate daily puzzle using AI
+app.post('/api/daily-puzzle/generate', async (req, res) => {
+  try {
+    const { date, difficulty } = req.body;
+    const puzzleDate = date || new Date().toISOString().split('T')[0];
+
+    // Check if puzzle already exists for this date
+    const existing = db.prepare('SELECT * FROM daily_puzzles WHERE date = ?').get(puzzleDate);
+    if (existing) {
+      return res.status(400).json({ error: 'Puzzle already exists for this date' });
+    }
+
+    // Get API key
+    const apiKeyRow = db.prepare('SELECT value FROM preferences WHERE key = ?').get('api_key');
+    if (!apiKeyRow || !apiKeyRow.value) {
+      return res.status(400).json({ error: 'Claude API key not configured' });
+    }
+
+    const anthropic = new Anthropic({ apiKey: apiKeyRow.value });
+
+    const prompt = `তুমি একজন গণিত ধাঁধা বিশেষজ্ঞ। একটি মজাদার গণিত ধাঁধা তৈরি করো যা শিক্ষার্থীদের চিন্তা করতে উৎসাহিত করবে।
+
+${difficulty ? `কঠিনতা: ${difficulty}` : ''}
+
+নির্দেশনা:
+1. ধাঁধাটি সম্পূর্ণ বাংলায় লেখো
+2. এটি পাঠ্যক্রমের বাইরের হতে পারে - শুধু মজার এবং চিন্তা-উদ্দীপক হতে হবে
+3. একটি সংকেত (hint) দাও যা সমাধানের দিকে নিয়ে যাবে
+4. সমাধান এবং ব্যাখ্যা দাও
+
+JSON ফরম্যাটে উত্তর দাও:
+{
+  "puzzle": "ধাঁধার প্রশ্ন",
+  "hint": "সংকেত",
+  "answer": "উত্তর",
+  "explanation": "ব্যাখ্যা",
+  "category": "logic/arithmetic/pattern/riddle"
+}`;
+
+    const message = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: prompt
+      }]
+    });
+
+    const responseText = message.content[0].text;
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    const generated = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(responseText);
+
+    // Save to database
+    const puzzleId = `puzzle_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    db.prepare(`
+      INSERT INTO daily_puzzles (
+        id, date, puzzle_bengali, answer, explanation_bengali,
+        hint_bengali, difficulty
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      puzzleId,
+      puzzleDate,
+      generated.puzzle,
+      generated.answer,
+      generated.explanation,
+      generated.hint || '',
+      difficulty || 'medium'
+    );
+
+    res.json({
+      id: puzzleId,
+      date: puzzleDate,
+      ...generated
+    });
+
+  } catch (error) {
+    console.error('Daily puzzle generation error:', error);
+    res.status(500).json({
+      error: 'Failed to generate daily puzzle',
+      details: error.message
+    });
+  }
+});
+
+// Submit puzzle answer
+app.post('/api/daily-puzzle/attempt', (req, res) => {
+  try {
+    const { puzzleId, userAnswer } = req.body;
+
+    if (!puzzleId || !userAnswer) {
+      return res.status(400).json({ error: 'puzzleId and userAnswer are required' });
+    }
+
+    const puzzle = db.prepare('SELECT * FROM daily_puzzles WHERE id = ?').get(puzzleId);
+    if (!puzzle) {
+      return res.status(404).json({ error: 'Puzzle not found' });
+    }
+
+    const correct = userAnswer.trim().toLowerCase() === puzzle.answer.trim().toLowerCase();
+
+    // Save attempt
+    db.prepare(`
+      INSERT INTO puzzle_attempts (
+        puzzle_id, user_id, solved, attempts, user_answer, solved_at
+      ) VALUES (?, 1, ?, 1, ?, datetime('now'))
+    `).run(puzzleId, correct ? 1 : 0, userAnswer);
+
+    res.json({
+      correct,
+      answer: puzzle.answer,
+      explanation: puzzle.explanation_bengali
+    });
+
+  } catch (error) {
+    console.error('Puzzle attempt error:', error);
+    res.status(500).json({
+      error: 'Failed to record puzzle attempt',
+      details: error.message
+    });
+  }
+});
+
+// Get puzzle history
+app.get('/api/daily-puzzle/history', (req, res) => {
+  const limit = parseInt(req.query.limit) || 10;
+  const puzzles = db.prepare(`
+    SELECT * FROM daily_puzzles
+    ORDER BY date DESC
+    LIMIT ?
+  `).all(limit);
+
+  res.json(puzzles);
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`Bengali Math API server → http://localhost:${PORT}`);

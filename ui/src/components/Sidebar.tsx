@@ -13,6 +13,9 @@ interface Props {
 const navItems: Array<{ id: NavSection; label: string; icon: string }> = [
   { id: 'syllabus', label: 'পাঠ্যক্রম', icon: '📚' },
   { id: 'practice', label: 'অনুশীলন', icon: '✏️' },
+  { id: 'word-problems', label: 'বাস্তব সমস্যা', icon: '🎯' },
+  { id: 'use-cases', label: 'কেন শিখব?', icon: '💡' },
+  { id: 'daily-puzzle', label: 'আজকের ধাঁধা', icon: '🧩' },
   { id: 'doubt', label: 'সন্দেহ সমাধান', icon: '🤖' },
   { id: 'progress', label: 'অগ্রগতি', icon: '📊' },
   { id: 'history', label: 'ইতিহাস', icon: '🕐' },
