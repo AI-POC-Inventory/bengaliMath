@@ -59,4 +59,4 @@ export interface DoubtEntry {
   date: string;
 }
 
-export type NavSection = 'syllabus' | 'practice' | 'doubt' | 'progress' | 'history' | 'admin';
+export type NavSection = 'syllabus' | 'practice' | 'doubt' | 'progress' | 'history' | 'admin' | 'word-problems' | 'use-cases' | 'daily-puzzle';
