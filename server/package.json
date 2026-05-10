@@ -4,12 +4,16 @@
   "type": "module",
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js"
+    "dev": "node --watch index.js",
+    "start:supabase": "node index-supabase.js",
+    "dev:supabase": "node --watch index-supabase.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
+    "@supabase/supabase-js": "^2.39.0",
     "better-sqlite3": "^11.0.0",
     "cors": "^2.8.5",
+    "dotenv": "^16.4.1",
     "express": "^4.21.0",
     "multer": "^2.1.1"
   }

@@ -1666,6 +1666,275 @@ app.get('/api/daily-puzzle/history', (req, res) => {
   res.json(puzzles);
 });
 
+// ── Bengali Chatbot Assistant ─────────────────────────────────────────────────
+
+// Get all conversations for a user/class
+app.get('/api/chat/conversations', (req, res) => {
+  try {
+    const { classId, userId } = req.query;
+
+    let query = 'SELECT * FROM chat_conversations WHERE is_archived = 0';
+    const params = [];
+
+    if (classId) {
+      query += ' AND class_id = ?';
+      params.push(parseInt(classId));
+    }
+
+    if (userId) {
+      query += ' AND user_id = ?';
+      params.push(parseInt(userId));
+    }
+
+    query += ' ORDER BY updated_at DESC LIMIT 50';
+
+    const conversations = db.prepare(query).all(...params);
+
+    // Get message count for each conversation
+    const result = conversations.map(conv => {
+      const messageCount = db.prepare(
+        'SELECT COUNT(*) as count FROM chat_messages WHERE conversation_id = ?'
+      ).get(conv.id);
+
+      return {
+        id: conv.id,
+        userId: conv.user_id,
+        classId: conv.class_id,
+        title: conv.title,
+        createdAt: conv.created_at,
+        updatedAt: conv.updated_at,
+        messageCount: messageCount.count,
+      };
+    });
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching conversations:', error);
+    res.status(500).json({ error: 'Failed to fetch conversations' });
+  }
+});
+
+// Get messages for a conversation
+app.get('/api/chat/conversations/:id/messages', (req, res) => {
+  try {
+    const { id } = req.params;
+    const messages = db.prepare(`
+      SELECT id, role, content, created_at, tokens_used
+      FROM chat_messages
+      WHERE conversation_id = ?
+      ORDER BY created_at ASC
+    `).all(id);
+
+    res.json(messages.map(m => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      createdAt: m.created_at,
+      tokensUsed: m.tokens_used,
+    })));
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+    res.status(500).json({ error: 'Failed to fetch messages' });
+  }
+});
+
+// Create a new conversation
+app.post('/api/chat/conversations', (req, res) => {
+  try {
+    const { classId, userId, title } = req.body;
+
+    if (!classId) {
+      return res.status(400).json({ error: 'classId is required' });
+    }
+
+    const conversationId = `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const now = new Date().toISOString();
+
+    db.prepare(`
+      INSERT INTO chat_conversations (id, user_id, class_id, title, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(conversationId, userId || null, classId, title || 'নতুন কথোপকথন', now, now);
+
+    res.json({
+      id: conversationId,
+      userId,
+      classId,
+      title: title || 'নতুন কথোপকথন',
+      createdAt: now,
+      updatedAt: now,
+      messageCount: 0,
+    });
+  } catch (error) {
+    console.error('Error creating conversation:', error);
+    res.status(500).json({ error: 'Failed to create conversation' });
+  }
+});
+
+// Send a message and get AI response (streaming)
+app.post('/api/chat/conversations/:id/messages', async (req, res) => {
+  try {
+    const { id: conversationId } = req.params;
+    const { message, classId } = req.body;
+
+    if (!message || !classId) {
+      return res.status(400).json({ error: 'message and classId are required' });
+    }
+
+    // Get API key
+    const apiKeyRow = db.prepare("SELECT value FROM preferences WHERE key = 'api_key'").get();
+    if (!apiKeyRow?.value) {
+      return res.status(400).json({ error: 'API key not configured' });
+    }
+
+    // Verify conversation exists
+    const conversation = db.prepare('SELECT * FROM chat_conversations WHERE id = ?').get(conversationId);
+    if (!conversation) {
+      return res.status(404).json({ error: 'Conversation not found' });
+    }
+
+    // Save user message
+    const userMessageId = db.prepare(`
+      INSERT INTO chat_messages (conversation_id, role, content, created_at)
+      VALUES (?, 'user', ?, datetime('now'))
+    `).run(conversationId, message).lastInsertRowid;
+
+    // Get conversation history (last 10 messages for context)
+    const history = db.prepare(`
+      SELECT role, content FROM chat_messages
+      WHERE conversation_id = ? AND id < ?
+      ORDER BY created_at DESC
+      LIMIT 10
+    `).all(conversationId, userMessageId);
+
+    // Build message array (reverse to get chronological order)
+    const messages = history.reverse().map(m => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    // Add current user message
+    messages.push({ role: 'user', content: message });
+
+    // Stream response
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    const classNames = { 5: 'পঞ্চম', 6: 'ষষ্ঠ', 7: 'সপ্তম', 8: 'অষ্টম', 9: 'নবম', 10: 'দশম' };
+    const client = new Anthropic({ apiKey: apiKeyRow.value });
+
+    let fullResponse = '';
+
+    try {
+      const stream = client.messages.stream({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4096,
+        system: `তুমি একজন সহায়ক বাংলা গণিত শিক্ষক সহকারী। তুমি ${classNames[classId] ?? ''} শ্রেণীর পশ্চিমবঙ্গ বোর্ড (WBBSE) এর ছাত্রছাত্রীদের সাহায্য করো।
+
+তোমার কাজ:
+- সবসময় বাংলায় উত্তর দাও
+- গণিতের সমস্যা সমাধানে ধাপে ধাপে সাহায্য করো
+- ধারণা সহজ ভাষায় ব্যাখ্যা করো
+- উৎসাহজনক ও বন্ধুত্বপূর্ণ ভঙ্গিতে কথা বলো
+- প্রয়োজনে উদাহরণ দাও
+- শিক্ষার্থীকে নিজে চিন্তা করতে উৎসাহিত করো, সরাসরি উত্তর না দিয়ে
+
+তুমি একজন সহায়ক বন্ধুর মতো, শুধু একজন শিক্ষক নয়।`,
+        messages,
+      });
+
+      for await (const event of stream) {
+        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+          fullResponse += event.delta.text;
+          res.write(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`);
+        }
+      }
+
+      // Save assistant response
+      db.prepare(`
+        INSERT INTO chat_messages (conversation_id, role, content, created_at)
+        VALUES (?, 'assistant', ?, datetime('now'))
+      `).run(conversationId, fullResponse);
+
+      // Update conversation updated_at and generate title if needed
+      if (!conversation.title || conversation.title === 'নতুন কথোপকথন') {
+        // Generate title from first user message (first 50 chars)
+        const title = message.substring(0, 50) + (message.length > 50 ? '...' : '');
+        db.prepare(`
+          UPDATE chat_conversations
+          SET updated_at = datetime('now'), title = ?
+          WHERE id = ?
+        `).run(title, conversationId);
+      } else {
+        db.prepare(`
+          UPDATE chat_conversations
+          SET updated_at = datetime('now')
+          WHERE id = ?
+        `).run(conversationId);
+      }
+
+      res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      res.write(`data: ${JSON.stringify({ error: msg })}\n\n`);
+    }
+
+    res.end();
+  } catch (error) {
+    console.error('Chat message error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to send message' });
+    }
+  }
+});
+
+// Delete a conversation
+app.delete('/api/chat/conversations/:id', (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Soft delete (archive)
+    db.prepare(`
+      UPDATE chat_conversations
+      SET is_archived = 1
+      WHERE id = ?
+    `).run(id);
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error deleting conversation:', error);
+    res.status(500).json({ error: 'Failed to delete conversation' });
+  }
+});
+
+// Get quick actions for a class
+app.get('/api/chat/quick-actions', (req, res) => {
+  try {
+    const { classId } = req.query;
+
+    if (!classId) {
+      return res.status(400).json({ error: 'classId is required' });
+    }
+
+    const actions = db.prepare(`
+      SELECT * FROM chat_quick_actions
+      WHERE class_id = ?
+      ORDER BY sort_order ASC, id ASC
+    `).all(parseInt(classId));
+
+    res.json(actions.map(a => ({
+      id: a.id,
+      category: a.category,
+      question: a.question_bengali,
+      icon: a.icon,
+    })));
+  } catch (error) {
+    console.error('Error fetching quick actions:', error);
+    res.status(500).json({ error: 'Failed to fetch quick actions' });
+  }
+});
+
 // ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`Bengali Math API server → http://localhost:${PORT}`);
