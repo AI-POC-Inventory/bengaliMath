@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getClassData } from '../data/curriculum';
-import type { ClassData, Topic } from '../types';
+import type { ClassData } from '../types';
 
 interface Props {
   classId: number;
