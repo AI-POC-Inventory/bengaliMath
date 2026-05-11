@@ -17,6 +17,7 @@ const navItems: Array<{ id: NavSection; label: string; icon: string }> = [
   { id: 'use-cases', label: 'কেন শিখব?', icon: '💡' },
   { id: 'daily-puzzle', label: 'আজকের ধাঁধা', icon: '🧩' },
   { id: 'doubt', label: 'সন্দেহ সমাধান', icon: '🤖' },
+  { id: 'chat', label: 'চ্যাট সহায়ক', icon: '💬' },
   { id: 'progress', label: 'অগ্রগতি', icon: '📊' },
   { id: 'history', label: 'ইতিহাস', icon: '🕐' },
   { id: 'admin', label: 'প্রশাসন', icon: '⚙️' },

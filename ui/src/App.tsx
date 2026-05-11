@@ -10,6 +10,7 @@ import Admin from './components/Admin';
 import WordProblemGenerator from './components/WordProblemGenerator';
 import UseCaseCards from './components/UseCaseCards';
 import DailyPuzzle from './components/DailyPuzzle';
+import ChatAssistant from './components/ChatAssistant';
 import { getPreferences, setPreference } from './api/client';
 import type { NavSection } from './types';
 
@@ -70,6 +71,7 @@ export default function App() {
       case 'syllabus': return <Syllabus classId={selectedClass} darkMode={darkMode} />;
       case 'practice': return <Practice classId={selectedClass} darkMode={darkMode} />;
       case 'doubt':    return <DoubtSolver classId={selectedClass} darkMode={darkMode} />;
+      case 'chat':     return <ChatAssistant classId={selectedClass} darkMode={darkMode} />;
       case 'progress': return <Progress classId={selectedClass} darkMode={darkMode} />;
       case 'history':  return <History classId={selectedClass} darkMode={darkMode} />;
       case 'admin':    return <Admin darkMode={darkMode} />;
