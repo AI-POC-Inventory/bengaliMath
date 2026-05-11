@@ -22,4 +22,4 @@ export function toBengaliDate(dateStr: string): string {
   return `${day} ${month} ${year}, ${hours}:${minutes}`;
 }
 
-export const bengaliOptionLabels = ['ক', 'খ', 'গ', 'ঘ'];
+export const bengaliOptionLabels = ['ক', 'খ', 'গ', 'ঘ' ];
