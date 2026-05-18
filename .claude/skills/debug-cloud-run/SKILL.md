@@ -1,6 +1,6 @@
 ---
 description: Debug Cloud Run services by fetching and analyzing logs for errors and issues
-allowed-tools: Bash(gcloud runs services list) Bash(gcloud logging read) Bash(gcloud runs describe) Bash(gcloud runs metrics)
+allowed-tools: gcp-run-logs gcp-run-services gcp-cloud-logging gcp-run-describe gcp-run-revisions
 ---
 
 ## Input Parameters
@@ -13,39 +13,58 @@ allowed-tools: Bash(gcloud runs services list) Bash(gcloud logging read) Bash(gc
 
 ## Step 1: Verify Service Exists
 
-!`gcloud run services list --format="table(metadata.name,status.conditions[0].type)" 2>&1 | grep {service_name}`
+Use GCP MCP tool `gcp-run-services` to list all Cloud Run services and verify `{service_name}` exists.
 
-If the service is not found, please provide the exact service name from the list above.
+If the service is not found, please provide the exact service name from the list.
 
 ---
 
 ## Step 2: Get Service Details & Status
 
-!`gcloud run services describe {service_name} --format="yaml(metadata.name, status.conditions, status.url, status.observedGeneration)" 2>&1`
+Use GCP MCP tool `gcp-run-describe` to fetch detailed information about service `{service_name}`:
+- Service name, status, URL
+- Conditions and deployment status
+- Resource allocation and configuration
 
 ---
 
 ## Step 3: Fetch Recent Error Logs (Last Hour)
 
-!`gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name={service_name} AND severity>=ERROR" --limit=50 --format=json 2>&1 | head -100`
+Use GCP MCP tool `gcp-cloud-logging` to query logs for service `{service_name}`:
+- Filter: severity >= ERROR
+- Time range: Last 1 hour
+- Limit: 50 entries
+- Look for patterns in error messages
 
 ---
 
 ## Step 4: Fetch Warning Logs (Last Hour)
 
-!`gcloud logging read "resource.type=cloud_run_revision AND resource.labels.service_name={service_name} AND severity=WARNING" --limit=30 --format=json 2>&1 | head -80`
+Use GCP MCP tool `gcp-cloud-logging` to query logs for service `{service_name}`:
+- Filter: severity = WARNING
+- Time range: Last 1 hour
+- Limit: 30 entries
+- Identify potential issues before they become errors
 
 ---
 
 ## Step 5: Check Recent Container Metrics
 
-!`gcloud monitoring time-series list --filter="resource.type=cloud_run_revision AND resource.labels.service_name={service_name}" --format=json 2>&1 | head -50`
+Use GCP MCP tool to fetch Cloud Run revision metrics:
+- CPU usage trends
+- Memory usage
+- Request latency
+- Error rates over time
 
 ---
 
 ## Step 6: Check Cloud Run Revisions & Deployment Status
 
-!`gcloud run revisions list --service={service_name} --format="table(metadata.name, status.conditions[0].type, status.conditions[0].status, metadata.creationTimestamp)" 2>&1`
+Use GCP MCP tool `gcp-run-revisions` to list recent revisions for service `{service_name}`:
+- Revision names and timestamps
+- Deployment status (ACTIVE, SUPERSEDED, etc.)
+- Traffic allocation
+- Creation time relative to error occurrence
 
 ---
 
@@ -88,7 +107,34 @@ Report findings as:
 
 ---
 
-## Useful Commands for Manual Investigation
+## GCP MCP Server Setup (Optional)
+
+To enable GCP MCP server for enhanced Cloud Run debugging:
+
+1. Configure GCP MCP in `.claude/settings.json`:
+```json
+{
+  "mcpServers": {
+    "gcp": {
+      "command": "npx",
+      "args": ["@anthropic-ai/sdk/gcp-mcp"]
+    }
+  }
+}
+```
+
+2. Available GCP MCP tools:
+   - `gcp-run-services` - List all Cloud Run services
+   - `gcp-run-describe` - Get service details
+   - `gcp-cloud-logging` - Read logs with filters
+   - `gcp-run-revisions` - List service revisions
+   - `gcp-metrics` - Fetch metrics and performance data
+
+---
+
+## Fallback: Manual gcloud Commands
+
+If GCP MCP is not available, use these gcloud commands:
 
 ```bash
 # Stream live logs
@@ -97,7 +143,7 @@ gcloud logging read "resource.type=cloud_run_revision AND resource.labels.servic
 # Get service configuration
 gcloud run services describe {service_name} --format=json
 
-# Check environment variables (if accessible)
+# Check environment variables
 gcloud run services describe {service_name} --format='value(spec.template.spec.containers[0].env[*])'
 
 # View deployment history
@@ -111,7 +157,8 @@ gcloud logging read "resource.type=cloud_run_revision AND resource.labels.servic
 
 ## Notes
 
+- **GCP MCP** is preferred for structured data and better integration
 - Logs are typically available for 30 days
-- Real-time streaming: Use `gcloud logging read` with `--follow` flag
-- For detailed metrics: Check Cloud Run dashboard in Google Cloud Console
-- If gcloud command fails: Ensure you're authenticated (`gcloud auth login`) and have proper permissions
+- Real-time streaming: Use `gcloud logging read --follow` (gcloud only)
+- For advanced metrics: Check Cloud Run dashboard in Google Cloud Console
+- If using gcloud: Ensure authentication (`gcloud auth login`) and proper permissions
