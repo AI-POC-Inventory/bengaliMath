@@ -3,17 +3,15 @@ import { useState, useRef, type CSSProperties } from 'react';
 interface Props {
   onTranscribed: (text: string) => void;
   disabled?: boolean;
-  darkMode: boolean;
 }
 
-export default function AudioInput({ onTranscribed, disabled, darkMode }: Props) {
+export default function AudioInput({ onTranscribed, disabled }: Props) {
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recognitionRef = useRef<any>(null);
 
-  const border = darkMode ? '#334155' : '#e2e8f0';
   const activeColor = '#3b82f6';
   const recordingColor = '#ef4444';
   const processingColor = '#f59e0b';

@@ -652,7 +652,6 @@ export default function ChatAssistant({ classId, darkMode }: Props) {
               <AudioInput
                 onTranscribed={(text) => setInputMessage(prev => prev + text)}
                 disabled={loading}
-                darkMode={darkMode}
               />
             </div>
           </div>

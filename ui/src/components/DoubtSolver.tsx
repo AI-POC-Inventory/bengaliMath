@@ -205,7 +205,6 @@ export default function DoubtSolver({ classId, darkMode }: Props) {
             <AudioInput
               onTranscribed={(text) => setQuestion(prev => prev + text)}
               disabled={loading}
-              darkMode={darkMode}
             />
             <button
               onClick={askQuestion}
