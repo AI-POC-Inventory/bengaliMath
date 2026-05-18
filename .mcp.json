@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "gcp": {
+      "command": "npx",
+      "args": ["@anthropic-ai/sdk/gcp-mcp"]
+    }
+  }
+}
