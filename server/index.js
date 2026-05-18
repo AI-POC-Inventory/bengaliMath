@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import Database from 'better-sqlite3';
 import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import multer from 'multer';
@@ -1770,7 +1771,7 @@ app.post('/api/chat/conversations', (req, res) => {
   }
 });
 
-// Send a message and get AI response (streaming)
+// Send a message and get AI response (streaming) using Gemini
 app.post('/api/chat/conversations/:id/messages', async (req, res) => {
   try {
     const { id: conversationId } = req.params;
@@ -1780,10 +1781,10 @@ app.post('/api/chat/conversations/:id/messages', async (req, res) => {
       return res.status(400).json({ error: 'message and classId are required' });
     }
 
-    // Get API key
-    const apiKeyRow = db.prepare("SELECT value FROM preferences WHERE key = 'api_key'").get();
+    // Get Gemini API key
+    const apiKeyRow = db.prepare("SELECT value FROM preferences WHERE key = 'gemini_api_key'").get();
     if (!apiKeyRow?.value) {
-      return res.status(400).json({ error: 'API key not configured' });
+      return res.status(400).json({ error: 'Gemini API key not configured' });
     }
 
     // Verify conversation exists
@@ -1806,14 +1807,15 @@ app.post('/api/chat/conversations/:id/messages', async (req, res) => {
       LIMIT 10
     `).all(conversationId, userMessageId);
 
-    // Build message array (reverse to get chronological order)
-    const messages = history.reverse().map(m => ({
-      role: m.role,
-      content: m.content,
+    // Build message array for Gemini (reverse to get chronological order)
+    // Gemini uses 'user' and 'model' roles, not 'assistant'
+    const contents = history.reverse().map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }],
     }));
 
     // Add current user message
-    messages.push({ role: 'user', content: message });
+    contents.push({ role: 'user', parts: [{ text: message }] });
 
     // Stream response
     res.setHeader('Content-Type', 'text/event-stream');
@@ -1822,15 +1824,15 @@ app.post('/api/chat/conversations/:id/messages', async (req, res) => {
     res.flushHeaders();
 
     const classNames = { 5: 'পঞ্চম', 6: 'ষষ্ঠ', 7: 'সপ্তম', 8: 'অষ্টম', 9: 'নবম', 10: 'দশম' };
-    const client = new Anthropic({ apiKey: apiKeyRow.value });
+    const genAI = new GoogleGenerativeAI(apiKeyRow.value);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
     let fullResponse = '';
 
     try {
-      const stream = client.messages.stream({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 4096,
-        system: `তুমি একজন সহায়ক বাংলা গণিত শিক্ষক সহকারী। তুমি ${classNames[classId] ?? ''} শ্রেণীর পশ্চিমবঙ্গ বোর্ড (WBBSE) এর ছাত্রছাত্রীদের সাহায্য করো।
+      const result = await model.generateContentStream({
+        contents,
+        systemInstruction: `তুমি একজন সহায়ক বাংলা গণিত শিক্ষক সহকারী। তুমি ${classNames[classId] ?? ''} শ্রেণীর পশ্চিমবঙ্গ বোর্ড (WBBSE) এর ছাত্রছাত্রীদের সাহায্য করো।
 
 তোমার কাজ:
 - সবসময় বাংলায় উত্তর দাও
@@ -1841,13 +1843,12 @@ app.post('/api/chat/conversations/:id/messages', async (req, res) => {
 - শিক্ষার্থীকে নিজে চিন্তা করতে উৎসাহিত করো, সরাসরি উত্তর না দিয়ে
 
 তুমি একজন সহায়ক বন্ধুর মতো, শুধু একজন শিক্ষক নয়।`,
-        messages,
       });
 
-      for await (const event of stream) {
-        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-          fullResponse += event.delta.text;
-          res.write(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`);
+      for await (const chunk of result.stream) {
+        if (chunk.text) {
+          fullResponse += chunk.text;
+          res.write(`data: ${JSON.stringify({ text: chunk.text })}\n\n`);
         }
       }
 
@@ -1932,6 +1933,45 @@ app.get('/api/chat/quick-actions', (req, res) => {
   } catch (error) {
     console.error('Error fetching quick actions:', error);
     res.status(500).json({ error: 'Failed to fetch quick actions' });
+  }
+});
+
+// ── Audio Transcription (Gemini fallback) ──────────────────────────────────────
+app.post('/api/audio/transcribe', async (req, res) => {
+  try {
+    const { audioBase64, mimeType } = req.body;
+
+    if (!audioBase64 || !mimeType) {
+      return res.status(400).json({ error: 'audioBase64 and mimeType are required' });
+    }
+
+    // Get Gemini API key
+    const apiKeyRow = db.prepare("SELECT value FROM preferences WHERE key = 'gemini_api_key'").get();
+    if (!apiKeyRow?.value) {
+      return res.status(400).json({ error: 'Gemini API key not configured' });
+    }
+
+    const genAI = new GoogleGenerativeAI(apiKeyRow.value);
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+    const result = await model.generateContent([
+      {
+        inlineData: {
+          data: audioBase64,
+          mimeType: mimeType,
+        },
+      },
+      {
+        text: 'এই অডিওটি বাংলায় ট্রান্সক্রাইব করুন। শুধুমাত্র ট্রান্সক্রিপ্শন দিন, অন্য কিছু নয়।',
+      },
+    ]);
+
+    const text = result.response.text();
+    res.json({ text: text.trim() });
+  } catch (error) {
+    console.error('Audio transcription error:', error);
+    const msg = error instanceof Error ? error.message : 'Failed to transcribe audio';
+    res.status(500).json({ error: msg });
   }
 });
 

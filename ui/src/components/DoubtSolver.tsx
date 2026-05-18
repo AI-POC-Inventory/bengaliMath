@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, type CSSProperties } from 'react';
 import { getPreferences, setPreference, getDoubts, saveDoubt, askDoubt } from '../api/client';
 import { toBengaliDate } from '../utils/bengali';
+import AudioInput from './AudioInput';
 import type { DoubtEntry } from '../types';
 
 interface Props {
@@ -182,7 +183,7 @@ export default function DoubtSolver({ classId, darkMode }: Props) {
           />
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ color: subText, fontSize: '0.8rem' }}>Ctrl+Enter দিয়ে পাঠান</span>
+          <span style={{ color: subText, fontSize: '0.8rem' }}>Ctrl+Enter দিয়ে পাঠান • 🎤 দিয়ে বলুন</span>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             {hasApiKey && (
               <button
@@ -201,6 +202,11 @@ export default function DoubtSolver({ classId, darkMode }: Props) {
                 API কী পরিবর্তন
               </button>
             )}
+            <AudioInput
+              onTranscribed={(text) => setQuestion(prev => prev + text)}
+              disabled={loading}
+              darkMode={darkMode}
+            />
             <button
               onClick={askQuestion}
               disabled={loading || !question.trim()}

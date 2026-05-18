@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, type CSSProperties } from 'react';
 import { getPreferences, setPreference } from '../api/client';
 import { toBengaliDate } from '../utils/bengali';
+import AudioInput from './AudioInput';
 
 interface Props {
   classId: number;
@@ -104,7 +105,7 @@ export default function ChatAssistant({ classId, darkMode }: Props) {
 
   async function saveKey() {
     if (!apiKeyInput.trim()) return;
-    await setPreference('api_key', apiKeyInput.trim()).catch(() => {});
+    await setPreference('gemini_api_key', apiKeyInput.trim()).catch(() => {});
     setHasApiKey(true);
     setShowApiKeyForm(false);
     setApiKeyInput('');
@@ -434,15 +435,15 @@ export default function ChatAssistant({ classId, darkMode }: Props) {
             padding: '1.5rem',
           }}>
             <h3 style={{ color: '#f59e0b', margin: '0 0 0.8rem', fontSize: '1rem', fontWeight: '600' }}>
-              🔑 Anthropic API কী প্রয়োজন
+              🔑 Google Gemini API কী প্রয়োজন
             </h3>
             <p style={{ color: subText, fontSize: '0.85rem', margin: '0 0 1rem' }}>
-              চ্যাট সহায়ক ব্যবহার করতে আপনার Anthropic API কী দিন।
+              চ্যাট সহায়ক ব্যবহার করতে আপনার Google Gemini API কী দিন।
             </p>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <input
                 type="password"
-                placeholder="sk-ant-..."
+                placeholder="AIza..."
                 value={apiKeyInput}
                 onChange={e => setApiKeyInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && saveKey()}
@@ -628,28 +629,35 @@ export default function ChatAssistant({ classId, darkMode }: Props) {
                 resize: 'none',
               }}
             />
-            <button
-              onClick={() => sendMessage()}
-              disabled={loading || !inputMessage.trim()}
-              style={{
-                padding: '0.8rem 1.5rem',
-                background: loading || !inputMessage.trim() ? border : '#3b82f6',
-                color: loading || !inputMessage.trim() ? subText : 'white',
-                border: 'none',
-                borderRadius: '0.7rem',
-                cursor: loading || !inputMessage.trim() ? 'not-allowed' : 'pointer',
-                fontFamily: "'Hind Siliguri', 'Noto Sans Bengali', sans-serif",
-                fontWeight: '600',
-                fontSize: '0.95rem',
-                whiteSpace: 'nowrap',
-                height: 'fit-content',
-              }}
-            >
-              {loading ? '⏳ পাঠানো হচ্ছে...' : 'পাঠান →'}
-            </button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-end' }}>
+              <button
+                onClick={() => sendMessage()}
+                disabled={loading || !inputMessage.trim()}
+                style={{
+                  padding: '0.8rem 1.5rem',
+                  background: loading || !inputMessage.trim() ? border : '#3b82f6',
+                  color: loading || !inputMessage.trim() ? subText : 'white',
+                  border: 'none',
+                  borderRadius: '0.7rem',
+                  cursor: loading || !inputMessage.trim() ? 'not-allowed' : 'pointer',
+                  fontFamily: "'Hind Siliguri', 'Noto Sans Bengali', sans-serif",
+                  fontWeight: '600',
+                  fontSize: '0.95rem',
+                  whiteSpace: 'nowrap',
+                  height: 'fit-content',
+                }}
+              >
+                {loading ? '⏳ পাঠানো হচ্ছে...' : 'পাঠান →'}
+              </button>
+              <AudioInput
+                onTranscribed={(text) => setInputMessage(prev => prev + text)}
+                disabled={loading}
+                darkMode={darkMode}
+              />
+            </div>
           </div>
           <div style={{ color: subText, fontSize: '0.8rem', marginTop: '0.5rem' }}>
-            Enter দিয়ে পাঠান • Shift+Enter দিয়ে নতুন লাইন
+            Enter দিয়ে পাঠান • Shift+Enter দিয়ে নতুন লাইন • 🎤 দিয়ে বলুন
           </div>
         </div>
       </div>
