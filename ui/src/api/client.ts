@@ -5,8 +5,15 @@ const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(
 
 // Base URL for the standalone Gemini chat service (Python/Flask, deployed
 // separately on Cloud Run). The Gemini API key lives server-side as an env var.
-export const CHAT_BASE = (import.meta.env.VITE_CHAT_API_BASE_URL as string | undefined)?.replace(/\/$/, '')
-  ?? 'http://localhost:8080';
+// Use VITE_CHAT_API_BASE_URL when provided (and non-empty — an unset GitHub
+// Actions variable expands to ''), otherwise fall back to the deployed service
+// in production builds and localhost during local dev.
+const CHAT_BASE_DEFAULT = import.meta.env.PROD
+  ? 'https://bengali-math-chat-989713142030.us-central1.run.app'
+  : 'http://localhost:8080';
+
+const _rawChatBase = (import.meta.env.VITE_CHAT_API_BASE_URL as string | undefined)?.trim();
+export const CHAT_BASE = (_rawChatBase ? _rawChatBase.replace(/\/$/, '') : CHAT_BASE_DEFAULT);
 
 // ── Internal helper ───────────────────────────────────────────────────────────
 
