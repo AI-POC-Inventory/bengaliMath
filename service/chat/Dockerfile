@@ -1,18 +1,18 @@
-FROM node:22-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
 # Install dependencies first (layer caching)
-COPY package.json .
-RUN npm install --omit=dev
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code (no .env — secrets come from Cloud Run env vars)
-COPY . .
+COPY api.py supabase_client.py gemini_client.py ./
 
 # Cloud Run injects PORT; default to 8080
 ENV PORT=8080
 
 EXPOSE 8080
 
-# Start the application
-CMD ["node", "index.js"]
+# gthread workers stream SSE responses without buffering; long timeout for chat streams
+CMD exec gunicorn --bind "0.0.0.0:${PORT}" --workers 1 --threads 8 --timeout 120 api:app

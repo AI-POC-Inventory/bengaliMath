@@ -1,4 +1,5 @@
 import { useState, useRef, type CSSProperties } from 'react';
+import { CHAT_BASE } from '../api/client';
 
 interface Props {
   onTranscribed: (text: string) => void;
@@ -109,7 +110,7 @@ export default function AudioInput({ onTranscribed, disabled }: Props) {
       reader.onloadend = async () => {
         const base64Audio = (reader.result as string).split(',')[1];
 
-        const response = await fetch('http://localhost:3001/api/audio/transcribe', {
+        const response = await fetch(`${CHAT_BASE}/audio/transcribe`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

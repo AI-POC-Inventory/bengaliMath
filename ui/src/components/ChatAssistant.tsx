@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, type CSSProperties } from 'react';
-import { getPreferences, setPreference } from '../api/client';
+import { CHAT_BASE } from '../api/client';
 import { toBengaliDate } from '../utils/bengali';
 import AudioInput from './AudioInput';
 
@@ -30,9 +30,6 @@ interface QuickAction {
 }
 
 export default function ChatAssistant({ classId, darkMode }: Props) {
-  const [hasApiKey, setHasApiKey] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [showApiKeyForm, setShowApiKeyForm] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversation, setActiveConversation] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -55,11 +52,6 @@ export default function ChatAssistant({ classId, darkMode }: Props) {
   const assistantMsgBg = darkMode ? '#334155' : '#f1f5f9';
 
   useEffect(() => {
-    getPreferences().then(prefs => {
-      setHasApiKey(!!prefs.apiKey);
-      setShowApiKeyForm(!prefs.apiKey);
-    }).catch(() => {});
-
     loadConversations();
     loadQuickActions();
   }, [classId]);
@@ -74,7 +66,7 @@ export default function ChatAssistant({ classId, darkMode }: Props) {
 
   async function loadConversations() {
     try {
-      const response = await fetch(`http://localhost:3001/api/chat/conversations?classId=${classId}`);
+      const response = await fetch(`${CHAT_BASE}/conversations?classId=${classId}`);
       const data = await response.json();
       setConversations(data);
     } catch (error) {
@@ -84,7 +76,7 @@ export default function ChatAssistant({ classId, darkMode }: Props) {
 
   async function loadQuickActions() {
     try {
-      const response = await fetch(`http://localhost:3001/api/chat/quick-actions?classId=${classId}`);
+      const response = await fetch(`${CHAT_BASE}/quick-actions?classId=${classId}`);
       const data = await response.json();
       setQuickActions(data);
     } catch (error) {
@@ -94,7 +86,7 @@ export default function ChatAssistant({ classId, darkMode }: Props) {
 
   async function loadMessages(conversationId: string) {
     try {
-      const response = await fetch(`http://localhost:3001/api/chat/conversations/${conversationId}/messages`);
+      const response = await fetch(`${CHAT_BASE}/conversations/${conversationId}/messages`);
       const data = await response.json();
       setMessages(data);
       setActiveConversation(conversationId);
@@ -103,17 +95,9 @@ export default function ChatAssistant({ classId, darkMode }: Props) {
     }
   }
 
-  async function saveKey() {
-    if (!apiKeyInput.trim()) return;
-    await setPreference('gemini_api_key', apiKeyInput.trim()).catch(() => {});
-    setHasApiKey(true);
-    setShowApiKeyForm(false);
-    setApiKeyInput('');
-  }
-
   async function createNewConversation() {
     try {
-      const response = await fetch('http://localhost:3001/api/chat/conversations', {
+      const response = await fetch(`${CHAT_BASE}/conversations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ classId }),
@@ -132,10 +116,6 @@ export default function ChatAssistant({ classId, darkMode }: Props) {
   async function sendMessage(messageText?: string) {
     const textToSend = messageText || inputMessage.trim();
     if (!textToSend || loading) return;
-    if (!hasApiKey) {
-      setShowApiKeyForm(true);
-      return;
-    }
 
     let convId = activeConversation;
     if (!convId) {
@@ -157,7 +137,7 @@ export default function ChatAssistant({ classId, darkMode }: Props) {
     setMessages(prev => [...prev, tempUserMessage]);
 
     try {
-      const response = await fetch(`http://localhost:3001/api/chat/conversations/${convId}/messages`, {
+      const response = await fetch(`${CHAT_BASE}/conversations/${convId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: textToSend, classId }),
@@ -203,13 +183,7 @@ export default function ChatAssistant({ classId, darkMode }: Props) {
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'অজানা ত্রুটি';
-      if (msg.includes('authentication') || msg.includes('401') || msg.includes('API key')) {
-        alert('API কী সঠিক নয়। অনুগ্রহ করে আপনার Anthropic API কী যাচাই করুন।');
-        setHasApiKey(false);
-        setShowApiKeyForm(true);
-      } else {
-        alert(`ত্রুটি: ${msg}`);
-      }
+      alert(`ত্রুটি: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -219,7 +193,7 @@ export default function ChatAssistant({ classId, darkMode }: Props) {
     if (!confirm('এই কথোপকথনটি মুছে ফেলতে চান?')) return;
 
     try {
-      await fetch(`http://localhost:3001/api/chat/conversations/${id}`, {
+      await fetch(`${CHAT_BASE}/conversations/${id}`, {
         method: 'DELETE',
       });
       setConversations(prev => prev.filter(c => c.id !== id));
@@ -402,88 +376,7 @@ export default function ChatAssistant({ classId, darkMode }: Props) {
               যেকোনো গণিত প্রশ্ন জিজ্ঞেস করুন
             </p>
           </div>
-          {hasApiKey && (
-            <button
-              onClick={() => {
-                setShowApiKeyForm(true);
-                setApiKeyInput('');
-              }}
-              style={{
-                marginLeft: 'auto',
-                padding: '0.5rem 1rem',
-                background: 'transparent',
-                border: `1px solid ${border}`,
-                borderRadius: '0.6rem',
-                color: subText,
-                cursor: 'pointer',
-                fontFamily: "'Hind Siliguri', 'Noto Sans Bengali', sans-serif",
-                fontSize: '0.85rem',
-              }}
-            >
-              API কী পরিবর্তন
-            </button>
-          )}
         </div>
-
-        {/* API Key Setup */}
-        {showApiKeyForm && (
-          <div style={{
-            margin: '1rem 1.5rem',
-            background: '#f59e0b15',
-            border: '1px solid #f59e0b40',
-            borderRadius: '1rem',
-            padding: '1.5rem',
-          }}>
-            <h3 style={{ color: '#f59e0b', margin: '0 0 0.8rem', fontSize: '1rem', fontWeight: '600' }}>
-              🔑 Google Gemini API কী প্রয়োজন
-            </h3>
-            <p style={{ color: subText, fontSize: '0.85rem', margin: '0 0 1rem' }}>
-              চ্যাট সহায়ক ব্যবহার করতে আপনার Google Gemini API কী দিন।
-            </p>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <input
-                type="password"
-                placeholder="AIza..."
-                value={apiKeyInput}
-                onChange={e => setApiKeyInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && saveKey()}
-                style={{ ...inputStyle, flex: 1 }}
-              />
-              <button
-                onClick={saveKey}
-                style={{
-                  padding: '0.75rem 1.2rem',
-                  background: '#f59e0b',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '0.7rem',
-                  cursor: 'pointer',
-                  fontFamily: "'Hind Siliguri', 'Noto Sans Bengali', sans-serif",
-                  fontWeight: '600',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                সংরক্ষণ
-              </button>
-            </div>
-            {hasApiKey && (
-              <button
-                onClick={() => setShowApiKeyForm(false)}
-                style={{
-                  marginTop: '0.5rem',
-                  background: 'none',
-                  border: 'none',
-                  color: subText,
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  padding: 0,
-                }}
-              >
-                বাতিল করুন
-              </button>
-            )}
-          </div>
-        )}
 
         {/* Messages */}
         <div

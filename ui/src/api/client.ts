@@ -3,6 +3,11 @@ import type { PracticeSession, DoubtEntry } from '../types';
 const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '')
   ?? 'http://localhost:3001/api';
 
+// Base URL for the standalone Gemini chat service (Python/Flask, deployed
+// separately on Cloud Run). The Gemini API key lives server-side as an env var.
+export const CHAT_BASE = (import.meta.env.VITE_CHAT_API_BASE_URL as string | undefined)?.replace(/\/$/, '')
+  ?? 'http://localhost:8080';
+
 // ── Internal helper ───────────────────────────────────────────────────────────
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
