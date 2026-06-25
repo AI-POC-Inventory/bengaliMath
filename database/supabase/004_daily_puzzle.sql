@@ -1,14 +1,9 @@
--- ═══════════════════════════════════════════════════════════════════════════════
--- Bengali Math - Supabase Migration 004: Daily Puzzle (standalone)
+-- Supabase Migration 004: Daily Puzzle (standalone, idempotent)
 --
 -- The daily-puzzle tables are declared in 001_initial_schema.sql, but live
--- databases provisioned before they were added (or only seeded with curriculum
--- data) are missing them (PostgREST error 42P01 / PGRST205).
---
--- This version is self-contained: no foreign keys to `users` or other base
--- tables, so it runs even on partially-provisioned databases. The puzzle_attempts
--- → daily_puzzles reference is internal to this script. Idempotent — safe to re-run.
--- ═══════════════════════════════════════════════════════════════════════════════
+-- databases provisioned before they were added are missing them (error 42P01).
+-- This version is self-contained: no foreign keys to base tables like `users`,
+-- so it runs on partially-provisioned databases. Safe to re-run.
 
 CREATE TABLE IF NOT EXISTS daily_puzzles (
   id TEXT PRIMARY KEY,
