@@ -2,7 +2,7 @@ import os
 from google import genai
 
 # Model used for chat completions and audio transcription.
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 
 def get_gemini_api_key() -> str:
