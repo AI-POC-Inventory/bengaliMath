@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { BASE } from '../api/client';
 
 interface Props {
   darkMode: boolean;
@@ -42,7 +43,7 @@ export default function DailyPuzzle({ darkMode }: Props) {
   async function loadTodaysPuzzle() {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:3001/api/daily-puzzle/today');
+      const response = await fetch(`${BASE}/daily-puzzle/today`);
       const data = await response.json();
 
       if (data.puzzle) {
@@ -61,7 +62,7 @@ export default function DailyPuzzle({ darkMode }: Props) {
     setGenerating(true);
 
     try {
-      const response = await fetch('http://localhost:3001/api/daily-puzzle/generate', {
+      const response = await fetch(`${BASE}/daily-puzzle/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -95,7 +96,7 @@ export default function DailyPuzzle({ darkMode }: Props) {
     if (!puzzle || !userAnswer.trim()) return;
 
     try {
-      const response = await fetch('http://localhost:3001/api/daily-puzzle/attempt', {
+      const response = await fetch(`${BASE}/daily-puzzle/attempt`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

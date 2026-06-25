@@ -71,6 +71,7 @@ jobs:
             SUPABASE_URL=${{ secrets.SUPABASE_URL }}
             SUPABASE_KEY=${{ secrets.SUPABASE_KEY }}
             CORS_ORIGINS=${{ secrets.CORS_ORIGINS }}
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
 
       # ── 7. Print service URL ─────────────────────────────────────────────────
       - name: Show deployed URL

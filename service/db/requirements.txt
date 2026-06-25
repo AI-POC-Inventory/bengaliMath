@@ -3,4 +3,5 @@ flask_cors
 supabase
 python-dotenv
 anthropic
+google-genai
 gunicorn

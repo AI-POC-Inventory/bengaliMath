@@ -3,6 +3,10 @@ from curriculam_reader import get_class_data, get_chapter, get_topic, get_all_qu
 from supabase_client import supabase
 import json
 import os
+import re
+import random
+import string
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 import anthropic
 from flask_cors import CORS
@@ -145,6 +149,145 @@ def post_doubt():
     }).execute()
 
     return jsonify({"ok": True})
+
+
+# ── Daily Puzzle ──────────────────────────────────────────────────────────
+
+PUZZLE_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+
+
+def _today_iso() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+@app.route("/api/daily-puzzle/today")
+def daily_puzzle_today():
+    rows = supabase.table("daily_puzzles").select("*").eq("date", _today_iso()).execute().data
+    if not rows:
+        return jsonify({"puzzle": None})
+
+    p = rows[0]
+    # Withhold answer/explanation until the user submits an attempt
+    return jsonify({"puzzle": {
+        "id": p["id"],
+        "date": p["date"],
+        "puzzle_date": p["date"],
+        "puzzle_bengali": p["puzzle_bengali"],
+        "hint_bengali": p.get("hint_bengali"),
+        "difficulty": p.get("difficulty"),
+        "category": p.get("category"),
+    }})
+
+
+@app.route("/api/daily-puzzle/generate", methods=["POST"])
+def daily_puzzle_generate():
+    try:
+        body = request.get_json(silent=True) or {}
+        difficulty = body.get("difficulty") or "medium"
+        puzzle_date = body.get("date") or _today_iso()
+
+        existing = supabase.table("daily_puzzles").select("id").eq("date", puzzle_date).execute().data
+        if existing:
+            return jsonify({"error": "Puzzle already exists for this date"}), 400
+
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            return jsonify({"error": "GEMINI_API_KEY is not configured"}), 400
+
+        prompt = f"""তুমি একজন গণিত ধাঁধা বিশেষজ্ঞ। একটি মজাদার গণিত ধাঁধা তৈরি করো যা শিক্ষার্থীদের চিন্তা করতে উৎসাহিত করবে।
+
+কঠিনতা: {difficulty}
+
+নির্দেশনা:
+1. ধাঁধাটি সম্পূর্ণ বাংলায় লেখো
+2. এটি পাঠ্যক্রমের বাইরের হতে পারে - শুধু মজার এবং চিন্তা-উদ্দীপক হতে হবে
+3. একটি সংকেত (hint) দাও যা সমাধানের দিকে নিয়ে যাবে
+4. সমাধান এবং ব্যাখ্যা দাও
+
+JSON ফরম্যাটে উত্তর দাও:
+{{
+  "puzzle": "ধাঁধার প্রশ্ন",
+  "hint": "সংকেত",
+  "answer": "উত্তর",
+  "explanation": "ব্যাখ্যা",
+  "category": "logic/arithmetic/pattern/riddle"
+}}"""
+
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model=PUZZLE_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.9,
+                response_mime_type="application/json",
+            ),
+        )
+
+        text = response.text or ""
+        try:
+            generated = json.loads(text)
+        except json.JSONDecodeError:
+            match = re.search(r"\{[\s\S]*\}", text)
+            if not match:
+                raise ValueError("Model did not return JSON")
+            generated = json.loads(match.group(0))
+
+        suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=9))
+        puzzle_id = f"puzzle_{int(time.time() * 1000)}_{suffix}"
+
+        supabase.table("daily_puzzles").insert({
+            "id": puzzle_id,
+            "date": puzzle_date,
+            "puzzle_bengali": generated["puzzle"],
+            "answer": generated["answer"],
+            "explanation_bengali": generated["explanation"],
+            "hint_bengali": generated.get("hint", ""),
+            "difficulty": difficulty,
+            "category": generated.get("category"),
+        }).execute()
+
+        return jsonify({"id": puzzle_id, "date": puzzle_date, **generated})
+    except Exception as error:  # noqa: BLE001
+        logger.exception("Daily puzzle generation error")
+        return jsonify({"error": "Failed to generate daily puzzle", "details": str(error)}), 500
+
+
+@app.route("/api/daily-puzzle/attempt", methods=["POST"])
+def daily_puzzle_attempt():
+    try:
+        body = request.get_json(silent=True) or {}
+        puzzle_id = body.get("puzzleId")
+        user_answer = body.get("userAnswer")
+
+        if not puzzle_id or not user_answer:
+            return jsonify({"error": "puzzleId and userAnswer are required"}), 400
+
+        rows = supabase.table("daily_puzzles").select("*").eq("id", puzzle_id).execute().data
+        if not rows:
+            return jsonify({"error": "Puzzle not found"}), 404
+        puzzle = rows[0]
+
+        correct = user_answer.strip().lower() == (puzzle.get("answer") or "").strip().lower()
+
+        supabase.table("puzzle_attempts").insert({
+            "puzzle_id": puzzle_id,
+            "solved": correct,
+            "attempts": 1,
+            "user_answer": user_answer,
+            "solved_at": datetime.now(timezone.utc).isoformat() if correct else None,
+        }).execute()
+
+        return jsonify({
+            "correct": correct,
+            "answer": puzzle.get("answer"),
+            "explanation": puzzle.get("explanation_bengali"),
+        })
+    except Exception as error:  # noqa: BLE001
+        logger.exception("Puzzle attempt error")
+        return jsonify({"error": "Failed to record puzzle attempt", "details": str(error)}), 500
 
 
 if __name__ == "__main__":

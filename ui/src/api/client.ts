@@ -1,6 +1,6 @@
 import type { PracticeSession, DoubtEntry } from '../types';
 
-const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '')
+export const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, '')
   ?? 'http://localhost:3001/api';
 
 // Base URL for the standalone Gemini chat service (Python/Flask, deployed
