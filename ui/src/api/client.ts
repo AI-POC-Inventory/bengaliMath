@@ -9,7 +9,7 @@ export const BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.r
 // Actions variable expands to ''), otherwise fall back to the deployed service
 // in production builds and localhost during local dev.
 const CHAT_BASE_DEFAULT = import.meta.env.PROD
-  ? 'https://bengali-math-chat-989713142030.us-central1.run.app'
+  ? 'https://bengali-math-chat-989713142030.asia-south1.run.app'
   : 'http://localhost:8080';
 
 const _rawChatBase = (import.meta.env.VITE_CHAT_API_BASE_URL as string | undefined)?.trim();
