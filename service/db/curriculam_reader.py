@@ -36,7 +36,7 @@ def get_class_data(class_id: int):
     mcq_ids = [q["id"] for q in questions if q["type"] == "mcq"]
 
     # Query 5: all options for MCQ questions (bulk)
-    options_rows = _timed("options  (bulk)", lambda: supabase.table("options").select("question_id, option_text").in_("question_id", mcq_ids).execute().data) if mcq_ids else []
+    options_rows = _timed("options  (bulk)", lambda: supabase.table("options").select("question_id, option_text").in_("question_id", mcq_ids).order("id").execute().data) if mcq_ids else []
 
     logger.debug("[LATENCY] *** get_class_data total=%.3fs  queries=5 ***", time.perf_counter() - total_start)
 
@@ -134,17 +134,37 @@ def get_all_questions(class_id: int, chapter_id=None, topic_id=None, difficulty=
 
     rows = query.execute().data
 
+    # Bulk-fetch options for MCQ questions so the UI can render choices.
+    # `answer` is a positional index into the options, so order by id (the
+    # insertion order used when seeding) to keep the index aligned.
+    mcq_ids = [row["id"] for row in rows if row["type"] == "mcq"]
+    options_rows = (
+        supabase.table("options")
+        .select("question_id, option_text")
+        .in_("question_id", mcq_ids)
+        .order("id")
+        .execute()
+        .data
+    ) if mcq_ids else []
+
+    options_map: dict = {}
+    for o in options_rows:
+        options_map.setdefault(o["question_id"], []).append(o["option_text"])
+
     result = []
     for row in rows:
+        question = {
+            "id": row["id"],
+            "type": row["type"],
+            "text": row["text"],
+            "answer": row["answer"],
+            "solution": row["solution"],
+            "difficulty": row["difficulty"],
+        }
+        if row["type"] == "mcq":
+            question["options"] = options_map.get(row["id"], [])
         result.append({
-            "question": {
-                "id": row["id"],
-                "type": row["type"],
-                "text": row["text"],
-                "answer": row["answer"],
-                "solution": row["solution"],
-                "difficulty": row["difficulty"],
-            },
+            "question": question,
             "topicId": row["topics"]["id"],
             "chapterId": row["topics"]["chapters"]["id"],
         })
