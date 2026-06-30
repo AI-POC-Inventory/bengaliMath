@@ -32,7 +32,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 console.log('✅ Connected to Supabase');
 
 // ── Middleware ────────────────────────────────────────────────────────────────
-app.use(cors());
+const allowedOrigins = (process.env.CORS_ORIGINS || '').split(',').map(o => o.trim()).filter(Boolean);
+app.use(cors({
+  origin: allowedOrigins.length > 0 ? allowedOrigins : '*',
+  credentials: true
+}));
 app.use(express.json({ limit: '2mb' }));
 
 // ── Preferences ───────────────────────────────────────────────────────────────
