@@ -1,0 +1,39 @@
+# Capacitor
+.capacitor/
+.idea/
+*.log
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+android/app/build/
+android/build/
+android/.gradle/
+android/app/release/
+
+# Keystore files - NEVER commit these!
+*.keystore
+*.jks
+keystore.properties
+android/keystore.properties
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# IDE
+.vscode/
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Android Studio
+android/.idea/
+android/local.properties
+android/captures/
+android/.externalNativeBuild/
+android/.cxx/

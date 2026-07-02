@@ -1,0 +1,12 @@
+{
+  "appId": "com.bengalimath.app",
+  "appName": "Bengali Math",
+  "webDir": "../../ui/dist",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

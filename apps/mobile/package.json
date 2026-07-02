@@ -1,0 +1,22 @@
+{
+  "name": "bengali-math-mobile",
+  "version": "1.0.0",
+  "description": "Bengali Math mobile app for Android",
+  "main": "index.js",
+  "scripts": {
+    "build": "cd ../../ui && npm run build",
+    "sync": "npm run build && npx cap sync android",
+    "open": "npx cap open android",
+    "run": "npm run sync && npx cap run android",
+    "copy": "npx cap copy android",
+    "update": "npx cap update android"
+  },
+  "keywords": ["bengali", "math", "education", "android"],
+  "author": "sendtosutap@gmail.com",
+  "license": "ISC",
+  "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1"
+  }
+}

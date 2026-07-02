@@ -28,7 +28,7 @@ export default function History({ classId, darkMode }: Props) {
   return (
     <div style={{ padding: '2rem', background: bg, minHeight: '100%', fontFamily: "'Hind Siliguri', 'Noto Sans Bengali', sans-serif" }}>
       <h1 style={{ fontSize: '1.8rem', fontWeight: '700', color: text, marginBottom: '0.5rem' }}>
-        🕐 ইতিহাস  ->
+        🕐 ইতিহাস  {'>'}
       </h1>
       <p style={{ color: subText, marginBottom: '1.5rem', fontSize: '0.9rem' }}>
         তোমার সব কার্যক্রমের রেকর্ড
