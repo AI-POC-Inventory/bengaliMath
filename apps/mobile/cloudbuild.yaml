@@ -1,0 +1,75 @@
+# Cloud Build pipeline: builds the Bengali Math Android **debug** APK in the cloud.
+#
+# Run from the repository root:
+#   gcloud builds submit --config apps/mobile/cloudbuild.yaml .
+#
+# The finished APK is uploaded to:
+#   ${_OUT_BUCKET}/${BUILD_ID}/app-debug.apk
+#
+# The React UI bakes its backend URL in at build time, so the Cloud Run URLs
+# below are compiled into the APK. Override them at submit time with, e.g.:
+#   --substitutions=_API_BASE=https://.../api,_CURRICULUM_URL=https://.../
+
+substitutions:
+  # Main Express/Flask API (client.ts expects the trailing /api).
+  _API_BASE: 'https://bengali-math-api-989713142030.asia-south1.run.app/api'
+  # Curriculum API (curriculum.ts strips the trailing slash; no /api prefix).
+  _CURRICULUM_URL: 'https://bengali-math-api-989713142030.asia-south1.run.app/'
+  # Destination bucket for the built APK.
+  _OUT_BUCKET: 'gs://bengali-math-apk-root-slate-312607'
+
+steps:
+  # 1) Build the web bundle, then sync it into the native Android project.
+  - id: web-and-sync
+    name: node:20
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        # Bake the reachable backend URLs into the Vite build.
+        printf 'VITE_API_BASE_URL=%s\nVITE_CURRICULUM_API_URL=%s\n' \
+          "${_API_BASE}" "${_CURRICULUM_URL}" > ui/.env
+        echo "--- ui/.env ---"; cat ui/.env
+
+        ( cd ui && npm ci && npm run build )
+        # Capacitor CLI + native module resolution live under apps/mobile/node_modules.
+        ( cd apps/mobile && npm ci && npx cap sync android )
+
+  # 2) Provision the Android SDK on JDK 21 and assemble the debug APK.
+  - id: android-apk
+    name: eclipse-temurin:21-jdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        apt-get update -qq && apt-get install -y -qq unzip curl >/dev/null
+
+        export ANDROID_SDK_ROOT=/opt/android-sdk
+        export ANDROID_HOME="$ANDROID_SDK_ROOT"
+        mkdir -p "$ANDROID_SDK_ROOT/cmdline-tools"
+        curl -fsSL -o /tmp/cmdtools.zip \
+          https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+        unzip -q /tmp/cmdtools.zip -d "$ANDROID_SDK_ROOT/cmdline-tools"
+        mv "$ANDROID_SDK_ROOT/cmdline-tools/cmdline-tools" "$ANDROID_SDK_ROOT/cmdline-tools/latest"
+        export PATH="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$ANDROID_SDK_ROOT/platform-tools:$PATH"
+
+        yes | sdkmanager --licenses >/dev/null
+        sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.0.0" >/dev/null
+
+        cd apps/mobile/android
+        chmod +x gradlew
+        ./gradlew assembleDebug --no-daemon --stacktrace
+
+# Publish the APK to GCS.
+artifacts:
+  objects:
+    location: '${_OUT_BUCKET}/${BUILD_ID}'
+    paths:
+      - 'apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk'
+
+timeout: 2400s
+options:
+  machineType: 'E2_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY
