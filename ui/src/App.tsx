@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import ClassSelection from './components/ClassSelection';
 import Sidebar from './components/Sidebar';
+import TopNav from './components/TopNav';
+import { useIsMobile } from './hooks/useIsMobile';
 import Syllabus from './components/Syllabus';
 import Practice from './components/Practice';
 import DoubtSolver from './components/DoubtSolver';
@@ -19,6 +21,7 @@ export default function App() {
   const [activeSection, setActiveSection] = useState<NavSection>('syllabus');
   const [darkMode, setDarkMode] = useState(false);
   const [loading, setLoading] = useState(true);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     getPreferences()
@@ -80,6 +83,29 @@ export default function App() {
       case 'daily-puzzle': return <DailyPuzzle darkMode={darkMode} />;
     }
   };
+
+  if (isMobile) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100vh',
+        fontFamily: "'Hind Siliguri', 'Noto Sans Bengali', sans-serif",
+      }}>
+        <TopNav
+          selectedClass={selectedClass}
+          activeSection={activeSection}
+          onSectionChange={setActiveSection}
+          onChangeClass={handleChangeClass}
+          darkMode={darkMode}
+          onToggleDarkMode={handleToggleDarkMode}
+        />
+        <main style={{ flex: 1, minWidth: 0 }}>
+          {renderSection()}
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div style={{
