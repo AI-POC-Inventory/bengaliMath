@@ -1,0 +1,50 @@
+# Cloud Build pipeline: builds the Bengali Math Android **debug** APK in the cloud.
+#
+# Run from the repository root:
+#   gcloud builds submit --config apps/mobile/cloudbuild.yaml .
+#
+# The finished APK is uploaded to:
+#   ${_OUT_BUCKET}/${BUILD_ID}/app-debug.apk
+#
+# The React UI bakes its backend URL in at build time, so the Cloud Run URLs
+# below are compiled into the APK. Override them at submit time with, e.g.:
+#   --substitutions=_API_BASE=https://.../api,_CURRICULUM_URL=https://.../
+#
+# The per-step logic lives in apps/mobile/ci/*.sh so that shell variables are
+# not misparsed as Cloud Build substitutions.
+
+substitutions:
+  # Main Express/Flask API (client.ts expects the trailing /api).
+  _API_BASE: 'https://bengali-math-api-989713142030.asia-south1.run.app/api'
+  # Curriculum API (curriculum.ts strips the trailing slash; no /api prefix).
+  _CURRICULUM_URL: 'https://bengali-math-api-989713142030.asia-south1.run.app/'
+  # Destination bucket for the built APK.
+  _OUT_BUCKET: 'gs://bengali-math-apk-root-slate-312607'
+
+steps:
+  # 1) Build the web bundle, then sync it into the native Android project.
+  - id: web-and-sync
+    name: node:22
+    entrypoint: bash
+    args: ['apps/mobile/ci/build-web.sh']
+    env:
+      - 'VITE_API_BASE_URL=${_API_BASE}'
+      - 'VITE_CURRICULUM_API_URL=${_CURRICULUM_URL}'
+
+  # 2) Provision the Android SDK on JDK 21 and assemble the debug APK.
+  - id: android-apk
+    name: eclipse-temurin:21-jdk
+    entrypoint: bash
+    args: ['apps/mobile/ci/build-apk.sh']
+
+# Publish the APK to GCS.
+artifacts:
+  objects:
+    location: '${_OUT_BUCKET}/${BUILD_ID}'
+    paths:
+      - 'apps/mobile/android/app/build/outputs/apk/debug/app-debug.apk'
+
+timeout: 2400s
+options:
+  machineType: 'E2_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY

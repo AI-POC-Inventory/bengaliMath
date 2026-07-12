@@ -1,0 +1,33 @@
+# Keep the Cloud Build source upload small: the mobile APK build only needs
+# ui/ and apps/mobile/ source. Everything below is regenerated in the build,
+# checked out fresh, or irrelevant to the Android build.
+
+.git/
+.github/
+
+# Dependencies / build outputs (reinstalled & rebuilt inside Cloud Build)
+**/node_modules/
+**/dist/
+**/build/
+apps/mobile/android/.gradle/
+apps/mobile/android/app/build/
+apps/mobile/android/build/
+
+# Python envs & caches
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.pyc
+
+# Backends / data not used by the Android build
+server/
+service/
+database/
+**/*.db
+**/*.db-wal
+**/*.db-shm
+
+# Misc
+**/*.log
+.env
+**/.env.local

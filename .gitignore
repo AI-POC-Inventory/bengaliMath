@@ -29,3 +29,20 @@ __pycache__/
 *.pyc
 */*.db-wal
 */*.db-shm
+
+# Android / Mobile App
+apps/mobile/android/build/
+apps/mobile/android/app/build/
+apps/mobile/android/.gradle/
+apps/mobile/android/local.properties
+apps/mobile/android/.idea/
+apps/mobile/android/captures/
+apps/mobile/android/.externalNativeBuild/
+apps/mobile/android/.cxx/
+apps/mobile/.capacitor/
+
+# Keystore files - NEVER commit!
+*.keystore
+*.jks
+keystore.properties
+apps/mobile/android/keystore.properties
