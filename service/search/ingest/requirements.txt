@@ -1,0 +1,8 @@
+pymupdf
+pillow
+numpy
+json-repair
+python-dotenv
+google-cloud-storage
+google-genai
+anthropic

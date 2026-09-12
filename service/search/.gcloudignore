@@ -1,0 +1,10 @@
+.git/
+__pycache__/
+*.pyc
+.env
+# Page renders and per-page blocks are large and rebuilt in the Job.
+# _work/dist IS needed by the search image build, so it is not excluded.
+_work/pages/
+_work/blocks/
+_work/figures/
+_work/class_VII.pdf

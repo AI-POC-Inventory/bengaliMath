@@ -1,0 +1,65 @@
+name: Deploy Search Service to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'service/search/**'
+      - '.github/workflows/deploy-search.yml'
+
+env:
+  SERVICE: bengali-math-search
+  REGION:  ${{ vars.GCP_REGION || 'us-central1' }}
+  IMAGE:   gcr.io/${{ secrets.GCP_PROJECT_ID }}/bengali-math-search
+
+jobs:
+  deploy:
+    name: Build & Deploy Search
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # The index bundle is not in git -- it is built by the ingestion Job and
+      # published to the private bucket. Fetch it so it can be baked in.
+      - name: Fetch published index bundle
+        working-directory: service/search
+        run: |
+          pip install --quiet google-cloud-storage python-dotenv
+          mkdir -p _work/dist
+          gcloud storage cp -r "gs://ganit-siksha-pipeline/content/class7/index/v1/*" _work/dist/
+          test -f _work/dist/manifest.json
+          cat _work/dist/manifest.json
+
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker --quiet
+
+      - name: Build image
+        working-directory: service/search
+        run: gcloud builds submit --tag "${IMAGE}" --project "${{ secrets.GCP_PROJECT_ID }}" .
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "${SERVICE}" \
+            --image "${IMAGE}" \
+            --platform managed \
+            --region "${REGION}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" \
+            --allow-unauthenticated \
+            --memory=1Gi --cpu=1 --cpu-boost \
+            --min-instances=0 --max-instances=5 \
+            --concurrency=80 --timeout=30 \
+            --set-secrets="GOOGLE_API_KEY=ganit-google-api-key:latest" \
+            --set-env-vars="INDEX_DIR=/app/index"
