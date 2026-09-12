@@ -2,6 +2,7 @@
 import json
 import logging
 import re
+import unicodedata
 
 from config import BOOK_ID, CLASS_NAME, BLOCK_DIR, WORK
 from normalize import fold
@@ -20,7 +21,18 @@ MAX_CHARS = 1200
 # The model emits the running head as a section_header despite being told to
 # ignore it. metadata.py already owns chapter numbers deterministically, so
 # these are dropped rather than allowed to become parent headings.
-RUNNING_HEAD = re.compile(r"^\s*অধ্যায়\s*[:：]?\s*[0-9০-৯]+\s*$")
+#
+# Unicode trap: the model returns precomposed BENGALI LETTER YYA (U+09DF) in
+# অধ্যায়, while a literal typed elsewhere may carry the decomposed য + ় pair
+# (U+09AF U+09BC). They are the same grapheme and compare unequal. U+09DF is a
+# composition exclusion, so NFC normalises TOWARDS the decomposed pair -- both
+# sides are normalised here so the match works whichever form arrives.
+_ODHYAY = unicodedata.normalize("NFC", "অধ্যায়")
+RUNNING_HEAD = re.compile(rf"^\s*{_ODHYAY}\s*[:：]?\s*[0-9০-৯]+\s*$")
+
+
+def is_running_head(text: str | None) -> bool:
+    return bool(RUNNING_HEAD.match(unicodedata.normalize("NFC", (text or "").strip())))
 
 
 def _load_blocks() -> dict[int, list[dict]]:
@@ -37,7 +49,9 @@ def chapter_titles(meta: dict, blocks: dict[int, list[dict]]) -> dict[int, str]:
     for c in meta["chapters"]:
         for b in blocks.get(c["pdf_start"], []):
             txt = (b.get("text") or "").strip()
-            if b.get("type") in ("section_header", "prose") and txt                     and not RUNNING_HEAD.match(txt):
+            # section_header only: falling back to prose picks up the first
+            # sentence of the chapter, which is noise in every context prefix.
+            if b.get("type") == "section_header" and txt and not is_running_head(txt):
                 titles[c["chapter_no"]] = txt[:60]
                 break
         titles.setdefault(c["chapter_no"], "")
@@ -66,7 +80,7 @@ def build_chunks(meta: dict, figures: list[dict] | None = None):
             btype = b.get("type")
 
             if btype == "section_header":
-                if RUNNING_HEAD.match(b.get("text") or ""):
+                if is_running_head(b.get("text")):
                     continue
                 ex = b.get("exercise_id")
                 pid = f"{BOOK_ID}.ch{ch:02d}.{ex or f'p{idx}'}"
@@ -131,8 +145,18 @@ def build_chunks(meta: dict, figures: list[dict] | None = None):
         if n:
             c["id"] = f"{c['id']}#{n}"
 
-    for p in parents.values():
-        p["text"] = "\n".join(p["text"])[:4000]
+    # Small-to-big only works if the parent carries content. An exercise set
+    # is nothing but its numbered items, so prose accumulation leaves it
+    # empty -- fill it from the children, in printed order.
+    kids: dict[str, list[str]] = {}
+    for c in chunks:
+        kids.setdefault(c["parent_id"], []).append(c["text"])
+    for pid, par in parents.items():
+        body = "\n".join(par["text"]) if par["text"] else ""
+        if not body.strip():
+            body = "\n".join(kids.get(pid, []))
+        par["text"] = body[:6000]
+        par["n_children"] = len(kids.get(pid, []))
 
     (WORK / "chunks.json").write_text(
         json.dumps(chunks, ensure_ascii=False), encoding="utf-8")

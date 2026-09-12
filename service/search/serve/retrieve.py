@@ -1,5 +1,6 @@
 """Hybrid retrieval: dense + BM25, fused with RRF, expanded to parents."""
 import re
+import unicodedata
 from collections import defaultdict
 
 import numpy as np
@@ -7,7 +8,12 @@ import numpy as np
 from normalize import fold
 
 K_RRF, POOL, FINAL = 60, 30, 5
-_CH = re.compile(r"(?:অধ্যায়|chapter|odhyay)\s*(\d{1,2})")
+# fold() NFC-normalises its input, so this literal must be NFC too.
+# BENGALI LETTER YYA is a composition exclusion: precomposed U+09DF and
+# decomposed U+09AF+U+09BC are the same grapheme but compare unequal, and
+# NFC normalises towards the decomposed pair. Normalising the pattern here
+# means the filter works whichever form the source file is saved in.
+_CH = re.compile(unicodedata.normalize("NFC", r"(?:অধ্যায়|chapter|odhyay)\s*(\d{1,2})"))
 _EX = re.compile(r"\b(\d{1,2}\.\d{1,2})\b")
 
 
