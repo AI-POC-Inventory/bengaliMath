@@ -1,0 +1,7 @@
+# Built from the service/search directory: trigger/Dockerfile copies
+# ingest/gcs_paths.py, so the parent directory must be the build context.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ['build', '-f', 'trigger/Dockerfile',
+           '-t', 'gcr.io/$PROJECT_ID/bengali-math-ingest-trigger', '.']
+images: ['gcr.io/$PROJECT_ID/bengali-math-ingest-trigger']

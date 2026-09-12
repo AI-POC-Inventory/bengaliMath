@@ -43,12 +43,16 @@ gcloud projects add-iam-policy-binding "${PROJECT}" \
   --member="serviceAccount:${GCS_SA}" --role="roles/pubsub.publisher" --condition=None
 gcloud projects add-iam-policy-binding "${PROJECT}" \
   --member="serviceAccount:${TRG_SA}" --role="roles/run.invoker" --condition=None
+# The Job reads the extraction API key from Secret Manager.
+gcloud secrets add-iam-policy-binding ganit-google-api-key --project="${PROJECT}" \
+  --member="serviceAccount:${JOB_SA}" --role="roles/secretmanager.secretAccessor"
 
 echo "==> 4/7 build images"
-gcloud builds submit --project="${PROJECT}" \
-  --tag "gcr.io/${PROJECT}/${JOB}" --file ingest/Dockerfile .
-gcloud builds submit --project="${PROJECT}" \
-  --tag "gcr.io/${PROJECT}/${LAUNCHER}" --file trigger/Dockerfile .
+# --file is not a valid flag for `gcloud builds submit` on every SDK version
+# (absent from 493.0.0), so each image has an explicit cloudbuild config that
+# points at its Dockerfile while keeping service/search as the build context.
+gcloud builds submit --project="${PROJECT}" --config ingest/cloudbuild.yaml .
+gcloud builds submit --project="${PROJECT}" --config trigger/cloudbuild.yaml .
 
 echo "==> 5/7 ingestion job"
 # ~298 vision calls. Jobs bill only while a task runs.

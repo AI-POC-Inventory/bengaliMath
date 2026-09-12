@@ -1,0 +1,8 @@
+# Built from the service/search directory so the image can also copy shared
+# modules. `gcloud builds submit --file` does not exist on all SDK versions,
+# hence an explicit config rather than a flag.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ['build', '-f', 'ingest/Dockerfile',
+           '-t', 'gcr.io/$PROJECT_ID/bengali-math-ingest', '.']
+images: ['gcr.io/$PROJECT_ID/bengali-math-ingest']
