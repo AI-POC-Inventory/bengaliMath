@@ -1,5 +1,9 @@
 name: Deploy Search Service to Cloud Run
 
+# Two ways in:
+#   * automatically, when service/search changes land on main
+#   * manually, from the Actions tab (Run workflow) -- pick the environment,
+#     the index version to bake in, and optionally a specific image tag
 on:
   push:
     branches:
@@ -7,18 +11,49 @@ on:
     paths:
       - 'service/search/**'
       - '.github/workflows/deploy-search.yml'
+  workflow_dispatch:
+    inputs:
+      region:
+        description: 'Cloud Run region'
+        required: false
+        default: 'us-central1'
+      index_version:
+        description: 'Index bundle version to bake into the image'
+        required: false
+        default: 'v1'
+      image_tag:
+        description: 'Image tag to build and deploy'
+        required: false
+        default: 'latest'
+      no_traffic:
+        description: 'Deploy the revision without routing traffic to it'
+        type: boolean
+        required: false
+        default: false
 
-env:
-  SERVICE: bengali-math-search
-  REGION:  ${{ vars.GCP_REGION || 'us-central1' }}
-  IMAGE:   gcr.io/${{ secrets.GCP_PROJECT_ID }}/bengali-math-search
+# One deploy at a time; a newer run waits rather than racing revisions.
+concurrency:
+  group: deploy-search-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  # A manual deploy must not be a way to skip the suite.
+  test:
+    uses: ./.github/workflows/test-search.yml
+
   deploy:
     name: Build & Deploy Search
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
+    env:
+      SERVICE: bengali-math-search
+      REGION: ${{ github.event.inputs.region || vars.GCP_REGION || 'us-central1' }}
+      INDEX_VERSION: ${{ github.event.inputs.index_version || 'v1' }}
+      IMAGE_TAG: ${{ github.event.inputs.image_tag || 'latest' }}
+      PRIVATE_BUCKET: ganit-siksha-pipeline
 
     steps:
       - name: Checkout
@@ -37,23 +72,31 @@ jobs:
       - name: Fetch published index bundle
         working-directory: service/search
         run: |
-          pip install --quiet google-cloud-storage python-dotenv
+          set -euo pipefail
           mkdir -p _work/dist
-          gcloud storage cp -r "gs://ganit-siksha-pipeline/content/class7/index/v1/*" _work/dist/
+          gcloud storage cp \
+            "gs://${PRIVATE_BUCKET}/content/class7/index/${INDEX_VERSION}/*" \
+            _work/dist/
           test -f _work/dist/manifest.json
+          test -f _work/dist/vectors.npy
           cat _work/dist/manifest.json
-
-      - name: Configure Docker for GCR
-        run: gcloud auth configure-docker --quiet
 
       - name: Build image
         working-directory: service/search
-        run: gcloud builds submit --tag "${IMAGE}" --project "${{ secrets.GCP_PROJECT_ID }}" .
+        run: |
+          gcloud builds submit \
+            --tag "gcr.io/${{ secrets.GCP_PROJECT_ID }}/${SERVICE}:${IMAGE_TAG}" \
+            --project "${{ secrets.GCP_PROJECT_ID }}" .
 
       - name: Deploy to Cloud Run
         run: |
+          set -euo pipefail
+          EXTRA=""
+          if [ "${{ github.event.inputs.no_traffic }}" = "true" ]; then
+            EXTRA="--no-traffic"
+          fi
           gcloud run deploy "${SERVICE}" \
-            --image "${IMAGE}" \
+            --image "gcr.io/${{ secrets.GCP_PROJECT_ID }}/${SERVICE}:${IMAGE_TAG}" \
             --platform managed \
             --region "${REGION}" \
             --project "${{ secrets.GCP_PROJECT_ID }}" \
@@ -62,4 +105,22 @@ jobs:
             --min-instances=0 --max-instances=5 \
             --concurrency=80 --timeout=30 \
             --set-secrets="GOOGLE_API_KEY=ganit-google-api-key:latest" \
-            --set-env-vars="INDEX_DIR=/app/index"
+            --set-env-vars="INDEX_DIR=/app/index" ${EXTRA}
+
+      # Fail the deploy if the revision cannot actually serve.
+      - name: Smoke test the deployed revision
+        if: ${{ github.event.inputs.no_traffic != 'true' }}
+        run: |
+          set -euo pipefail
+          URL="$(gcloud run services describe "${SERVICE}" \
+                  --region "${REGION}" --project "${{ secrets.GCP_PROJECT_ID }}" \
+                  --format='value(status.url)')"
+          echo "health: ${URL}/health"
+          curl -sfS --retry 5 --retry-delay 5 --retry-connrefused "${URL}/health" | tee /tmp/health.json
+          python - <<'PY'
+          import json
+          h = json.load(open("/tmp/health.json"))
+          assert h.get("ok") is True, h
+          assert h.get("chunks", 0) > 0, h
+          print("smoke ok:", h["chunks"], "chunks,", h["embedding_model"])
+          PY

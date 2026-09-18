@@ -1,0 +1,52 @@
+name: Test Search Service
+
+# Runs on every branch and PR that touches the search service, and is callable
+# from the deploy workflow so a manual deploy cannot skip the suite.
+on:
+  push:
+    paths:
+      - 'service/search/**'
+      - '.github/workflows/test-search.yml'
+  pull_request:
+    paths:
+      - 'service/search/**'
+      - '.github/workflows/test-search.yml'
+  workflow_call:
+
+jobs:
+  test:
+    name: Offline test suite
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        working-directory: service/search
+        run: pip install --quiet -r requirements-dev.txt
+
+      # No API key, no GCS, no PDF: these cover the pure logic that has
+      # actually broken here -- Bengali Unicode normalisation, the running-head
+      # filter, query filter parsing and rank fusion.
+      - name: Run tests
+        working-directory: service/search
+        run: pytest
+
+      - name: Byte-compile every module
+        working-directory: service/search
+        run: python -m compileall -q ingest serve trigger tools
+
+      - name: Check shell scripts parse
+        working-directory: service/search
+        run: |
+          bash -n setup_trigger.sh
+          bash -n deploy.sh

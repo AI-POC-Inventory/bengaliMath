@@ -90,6 +90,36 @@ cd ingest && python render.py && python metadata.py && python extract.py
 python ingest/fetch_index.py && ./deploy.sh root-slate-312607
 ```
 
+## Tests
+
+```bash
+cd service/search
+pip install -r requirements-dev.txt
+pytest
+```
+
+The suite is deliberately offline: no API key, no GCS, no PDF. It covers the
+pure logic that has actually broken in this project -- Bengali Unicode
+normalisation (`fold()` keeping combining marks, and the precomposed vs
+decomposed forms of `অধ্যায়`), the running-head filter, query filter parsing,
+and RRF rank fusion over a synthetic index.
+
+CI runs it on every push and PR touching `service/search`
+(`.github/workflows/test-search.yml`), and the deploy workflow calls the same
+suite, so a manual deploy cannot skip it.
+
+## Deploying
+
+| How | What happens |
+|---|---|
+| Push to `main` touching `service/search/**` | Tests, then build and deploy |
+| Actions tab -> "Deploy Search Service to Cloud Run" -> Run workflow | Same, with inputs for region, `index_version`, `image_tag` and `no_traffic` |
+| `./deploy.sh <PROJECT> [REGION]` | Local build and deploy; needs `_work/dist` populated |
+
+Both CI paths fetch the published index bundle from the private bucket, bake it
+into the image, and smoke-test `/health` on the new revision before finishing.
+Use `no_traffic` to stage a revision without routing to it.
+
 ## Providers
 
 `EXTRACT_PROVIDER=gemini` (default) or `anthropic`. Both are implemented in

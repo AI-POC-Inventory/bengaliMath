@@ -1,0 +1,5 @@
+# Test-only dependencies. The offline suite needs numpy (retrieval maths) and
+# python-dotenv (imported by config.py); it deliberately needs no API key,
+# no GCS access and no PDF.
+-r requirements.txt
+pytest
