@@ -77,9 +77,19 @@ def main() -> int:
         from chunk import build_chunks
         from build_index import build as build_index
 
-        log.info("book gs://%s/%s gen=%s", P.PUBLIC_BUCKET, BOOK_OBJECT, GENERATION)
+        log.info("book gs://%s/%s gen=%s force=%s",
+                 P.PUBLIC_BUCKET, BOOK_OBJECT, GENERATION, FORCE)
         download_book(BOOK_OBJECT)
-        restore_checkpoints()
+
+        # FORCE means re-extract, not just re-run. Restoring checkpoints would
+        # pull every existing per-page block back down, and extract_page()
+        # short-circuits on any block file that already exists -- so a forced
+        # run would rewrite the index with byte-identical content and a fresh
+        # timestamp, which looks like a rebuild and is not one.
+        if FORCE:
+            log.info("FORCE_REINDEX: skipping checkpoint restore, re-extracting all pages")
+        else:
+            restore_checkpoints()
 
         log.info("step 02 render");   render_all()
         log.info("step 03 metadata"); meta = build_metadata()
