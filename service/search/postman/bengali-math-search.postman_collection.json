@@ -1,0 +1,331 @@
+{
+  "info": {
+    "name": "Bengali Math — Search (Class VII)",
+    "description": "Hybrid search over the WBBSE Class VII textbook গণিতপ্রভা.\n\nRun the whole folder with the Collection Runner: each request asserts\nthe behaviour it exists to prove. Requests 2-5 are the four query\nshapes the design must handle — exact exercise ID, paraphrased concept\nquestion, pure notation, and a chapter jump. If all four pass, both\nretrieval arms and the filter parser are working.\n\nBengali text is safe to type directly in Postman (unlike curl from\nGit Bash, which mangles it to ????? before the request is sent).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://bengali-math-search-989713142030.us-central1.run.app",
+      "type": "string"
+    },
+    {
+      "key": "chunks",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Health",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const d = pm.response.json();",
+              "pm.test('service reports ok', () => pm.expect(d.ok).to.be.true);",
+              "pm.test('index is loaded', () => pm.expect(d.chunks).to.be.above(0));",
+              "pm.test('embedding model recorded', () =>",
+              "  pm.expect(d.embedding_model).to.be.a('string').and.not.empty);",
+              "console.log('index:', d.chunks, 'chunks,', d.parents, 'parents, version', d.index_version);",
+              "pm.collectionVariables.set('chunks', d.chunks);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "description": "Liveness plus which index bundle is baked into the running image.\n\nNOTE: the first call after idle takes ~2s (scale-to-zero cold start), then ~135ms.",
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "2. Exercise reference (lexical arm)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const d = pm.response.json();",
+              "// pm.request.url.query.get('q') returns the PERCENT-ENCODED value, so it",
+              "// must be decoded before comparing with what the service echoed back.",
+              "const sent = decodeURIComponent(pm.request.url.query.get('q').replace(/\\+/g, ' '));",
+              "pm.test('query survived the round trip (catches encoding mangling)', () =>",
+              "  pm.expect(d.query).to.eql(sent));",
+              "pm.test('exercise filter parsed', () => pm.expect(d.filters.exercise_id).to.eql('1.2'));",
+              "pm.test('lands in chapter 1', () => pm.expect(d.results[0].chapter_no).to.eql(1));",
+              "pm.test('parent exercise set attached', () =>",
+              "  pm.expect(d.results[0].parent.n_children).to.be.above(1));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "description": "An exact exercise ID. Dense embeddings blur 1.2 vs 1.3, so this is the lexical arm's job.",
+        "url": {
+          "raw": "{{baseUrl}}/search?q=কষে দেখি 1.2&top=2",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "search"
+          ],
+          "query": [
+            {
+              "key": "q",
+              "value": "কষে দেখি 1.2"
+            },
+            {
+              "key": "top",
+              "value": "2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "3. Concept question (dense arm)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const d = pm.response.json();",
+              "// pm.request.url.query.get('q') returns the PERCENT-ENCODED value, so it",
+              "// must be decoded before comparing with what the service echoed back.",
+              "const sent = decodeURIComponent(pm.request.url.query.get('q').replace(/\\+/g, ' '));",
+              "pm.test('query survived the round trip (catches encoding mangling)', () =>",
+              "  pm.expect(d.query).to.eql(sent));",
+              "pm.test('no filter — pure semantic match', () =>",
+              "  pm.expect(Object.keys(d.filters)).to.have.lengthOf(0));",
+              "pm.test('lands in the percentages chapter', () =>",
+              "  pm.expect(d.results[0].chapter_no).to.eql(1));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "description": "A paraphrased question sharing no surface terms with the answer. Dense arm's job.",
+        "url": {
+          "raw": "{{baseUrl}}/search?q=শতকরা বৃদ্ধি কীভাবে বার করব&top=2",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "search"
+          ],
+          "query": [
+            {
+              "key": "q",
+              "value": "শতকরা বৃদ্ধি কীভাবে বার করব"
+            },
+            {
+              "key": "top",
+              "value": "2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "4. Exact notation (lexical arm)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const d = pm.response.json();",
+              "// pm.request.url.query.get('q') returns the PERCENT-ENCODED value, so it",
+              "// must be decoded before comparing with what the service echoed back.",
+              "const sent = decodeURIComponent(pm.request.url.query.get('q').replace(/\\+/g, ' '));",
+              "pm.test('query survived the round trip (catches encoding mangling)', () =>",
+              "  pm.expect(d.query).to.eql(sent));",
+              "pm.test('lands in the proportion chapter', () =>",
+              "  pm.expect(d.results[0].chapter_no).to.eql(3));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "description": "Numeric literals. Dense retrieval is near-useless here; BM25 carries it.",
+        "url": {
+          "raw": "{{baseUrl}}/search?q=5 : 7 :: 10 : 14&top=2",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "search"
+          ],
+          "query": [
+            {
+              "key": "q",
+              "value": "5 : 7 :: 10 : 14"
+            },
+            {
+              "key": "top",
+              "value": "2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "5. Chapter jump (metadata filter)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const d = pm.response.json();",
+              "// pm.request.url.query.get('q') returns the PERCENT-ENCODED value, so it",
+              "// must be decoded before comparing with what the service echoed back.",
+              "const sent = decodeURIComponent(pm.request.url.query.get('q').replace(/\\+/g, ' '));",
+              "pm.test('query survived the round trip (catches encoding mangling)', () =>",
+              "  pm.expect(d.query).to.eql(sent));",
+              "pm.test('chapter filter parsed', () => pm.expect(d.filters.chapter_no).to.eql(16));",
+              "pm.test('every result is from chapter 16', () =>",
+              "  d.results.forEach(r => pm.expect(r.chapter_no).to.eql(16)));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "description": "Navigation, not search — this must become a pre-filter.\n\nAlso exercises the Bengali Unicode path: অধ্যায় exists in two forms (precomposed U+09DF vs decomposed য + ়) and both must parse.",
+        "url": {
+          "raw": "{{baseUrl}}/search?q=অধ্যায় 16&top=2",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "search"
+          ],
+          "query": [
+            {
+              "key": "q",
+              "value": "অধ্যায় 16"
+            },
+            {
+              "key": "top",
+              "value": "2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "6. POST /search (JSON body)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "const d = pm.response.json();",
+              "pm.test('lands in the proportion chapter', () =>",
+              "  pm.expect(d.results[0].chapter_no).to.eql(3));",
+              "pm.test('response is fast once warm', () => pm.expect(d.took_ms).to.be.below(3000));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"q\": \"সমানুপাত কাকে বলে\",\n  \"top\": 2\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Same retrieval, JSON body instead of query params.",
+        "url": {
+          "raw": "{{baseUrl}}/search",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "search"
+          ]
+        }
+      }
+    },
+    {
+      "name": "7. Empty query (negative test)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('rejects an empty query with 400', () => pm.response.to.have.status(400));",
+              "const d = pm.response.json();",
+              "pm.test('error explains what to do', () => pm.expect(d.hint).to.be.a('string'));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "description": "An empty q must be a clean 400, not a 500 or an empty result page.",
+        "url": {
+          "raw": "{{baseUrl}}/search?q=&top=2",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "search"
+          ],
+          "query": [
+            {
+              "key": "q",
+              "value": ""
+            },
+            {
+              "key": "top",
+              "value": "2"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
