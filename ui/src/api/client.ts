@@ -15,6 +15,17 @@ const CHAT_BASE_DEFAULT = import.meta.env.PROD
 const _rawChatBase = (import.meta.env.VITE_CHAT_API_BASE_URL as string | undefined)?.trim();
 export const CHAT_BASE = (_rawChatBase ? _rawChatBase.replace(/\/$/, '') : CHAT_BASE_DEFAULT);
 
+// Base URL for the curriculum API (Python/Flask, service/db, Supabase-backed).
+// This is also where the admin question generator lives (see below) -- it
+// needs to be the Supabase-connected service, not the SQLite `BASE` above.
+// Same env var ui/src/data/curriculum.ts already reads.
+const CURRICULUM_BASE_DEFAULT = import.meta.env.PROD
+  ? 'https://bengali-math-api-989713142030.us-central1.run.app'
+  : 'http://localhost:5000';
+
+const _rawCurriculumBase = (import.meta.env.VITE_CURRICULUM_API_URL as string | undefined)?.trim();
+export const CURRICULUM_BASE = (_rawCurriculumBase ? _rawCurriculumBase.replace(/\/$/, '') : CURRICULUM_BASE_DEFAULT);
+
 // ── Internal helper ───────────────────────────────────────────────────────────
 
 async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
@@ -145,6 +156,91 @@ export const updateAdminQuestion = (id: string, q: Omit<AdminQuestion, 'id' | 't
   fetchJSON(`${BASE}/admin/questions/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(q) });
 export const deleteAdminQuestion = (id: string) =>
   fetchJSON(`${BASE}/admin/questions/${id}`, { method: 'DELETE' });
+
+// ── Question Generator ──────────────────────────────────────────────────────
+// Talks to CURRICULUM_BASE (service/db, Supabase), not BASE (SQLite) — the
+// generator's staging table and the live `questions` table it approves into
+// both live in Supabase, the same database service/db/curriculam_reader.py
+// reads for the student-facing app.
+
+export interface CurriculumClass { id: number; name: string; bengaliName: string }
+
+export interface DifficultyMix { easy: number; medium: number; hard: number }
+export type QuestionType = 'mcq' | 'short' | 'mixed';
+export type StagingStatus = 'pending' | 'approved' | 'rejected';
+
+export interface StagedQuestion {
+  id: string;
+  batch_id: string;
+  class_id: number;
+  chapter_id: string;
+  topic_id: string;
+  type: 'mcq' | 'short';
+  text: string;
+  answer: string;
+  solution: string;
+  difficulty: 'easy' | 'medium' | 'hard';
+  options: string[] | null;
+  status: StagingStatus;
+  possible_duplicate_of: string | null;
+  similarity_score: number | null;
+  source_chunk_ids: string[] | null;
+  created_at: string;
+  reviewed_at: string | null;
+}
+
+export interface GenerateQuestionsResult {
+  batchId: string;
+  candidates: StagedQuestion[];
+  auditUri: string | null;
+}
+
+export const getCurriculumClasses = () =>
+  fetchJSON<CurriculumClass[]>(`${CURRICULUM_BASE}/classes`);
+
+export const generateQuestions = (params: {
+  classId: number; chapterId: string; topicId: string; count: number;
+  difficultyMix: DifficultyMix; questionType: QuestionType;
+}) =>
+  fetchJSON<GenerateQuestionsResult>(`${CURRICULUM_BASE}/api/admin/questions/generate`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      classId: params.classId, chapterId: params.chapterId, topicId: params.topicId,
+      count: params.count, difficultyMix: params.difficultyMix, questionType: params.questionType,
+    }),
+  });
+
+export const getStagingQuestions = (filter: {
+  batchId?: string; classId?: number; chapterId?: string; topicId?: string; status?: StagingStatus;
+} = {}) => {
+  const params = new URLSearchParams();
+  if (filter.batchId)   params.set('batchId', filter.batchId);
+  if (filter.classId)   params.set('classId', String(filter.classId));
+  if (filter.chapterId) params.set('chapterId', filter.chapterId);
+  if (filter.topicId)   params.set('topicId', filter.topicId);
+  if (filter.status)    params.set('status', filter.status);
+  return fetchJSON<StagedQuestion[]>(`${CURRICULUM_BASE}/api/admin/questions/staging?${params}`);
+};
+
+export const approveStaged = (id: string) =>
+  fetchJSON<{ ok: boolean; detail: string }>(
+    `${CURRICULUM_BASE}/api/admin/questions/staging/${id}/approve`, { method: 'POST' });
+
+export const rejectStaged = (id: string) =>
+  fetchJSON<{ ok: boolean; detail: string }>(
+    `${CURRICULUM_BASE}/api/admin/questions/staging/${id}/reject`, { method: 'POST' });
+
+interface BatchResult { results: Record<string, { ok: boolean; detail: string }>; failed: number }
+
+export const batchApproveStaged = (ids: string[]) =>
+  fetchJSON<BatchResult & { approved: number }>(
+    `${CURRICULUM_BASE}/api/admin/questions/staging/batch-approve`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+
+export const batchRejectStaged = (ids: string[]) =>
+  fetchJSON<BatchResult & { rejected: number }>(
+    `${CURRICULUM_BASE}/api/admin/questions/staging/batch-reject`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
 
 // ── Mistakes ──────────────────────────────────────────────────────────────────
 export function recordMistake(userId: number, questionId: string, topicId: string, chapterId: string): Promise<void> {
