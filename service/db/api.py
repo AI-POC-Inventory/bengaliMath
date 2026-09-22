@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request, Response, stream_with_context
 from curriculam_reader import get_class_data, get_chapter, get_topic, get_all_questions
 from supabase_client import supabase
+from question_generator import generate as generate_questions, GenerationError
 import json
 import os
 import re
@@ -288,6 +289,146 @@ def daily_puzzle_attempt():
     except Exception as error:  # noqa: BLE001
         logger.exception("Puzzle attempt error")
         return jsonify({"error": "Failed to record puzzle attempt", "details": str(error)}), 500
+
+
+# ── Admin: Question Generator ────────────────────────────────────────────
+
+@app.route("/classes")
+def list_classes():
+    rows = supabase.table("classes").select("*").order("id").execute().data
+    return jsonify([{"id": r["id"], "name": r["name"], "bengaliName": r["bengali_name"]} for r in rows])
+
+
+@app.route("/api/admin/questions/generate", methods=["POST"])
+def admin_generate_questions():
+    body = request.get_json(silent=True) or {}
+    required = ["classId", "chapterId", "topicId", "count"]
+    missing = [k for k in required if body.get(k) in (None, "")]
+    if missing:
+        return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
+
+    try:
+        result = generate_questions(
+            class_id=int(body["classId"]),
+            chapter_id=body["chapterId"],
+            topic_id=body["topicId"],
+            count=int(body["count"]),
+            difficulty_mix=body.get("difficultyMix") or {"easy": 30, "medium": 50, "hard": 20},
+            question_type=body.get("questionType", "mcq"),
+        )
+        return jsonify(result)
+    except GenerationError as e:
+        return jsonify({"error": e.message}), e.status
+    except Exception as error:  # noqa: BLE001
+        logger.exception("Question generation error")
+        return jsonify({"error": "Failed to generate questions", "details": str(error)}), 500
+
+
+@app.route("/api/admin/questions/staging")
+def admin_staging_list():
+    query = supabase.table("generated_questions").select("*")
+    for param, col in (("batchId", "batch_id"), ("classId", "class_id"),
+                      ("chapterId", "chapter_id"), ("topicId", "topic_id"),
+                      ("status", "status")):
+        val = request.args.get(param)
+        if val:
+            query = query.eq(col, val)
+    rows = query.order("created_at", desc=True).execute().data
+    return jsonify(rows)
+
+
+def _approve_one(staged_id: str) -> tuple[bool, str]:
+    rows = supabase.table("generated_questions").select("*").eq("id", staged_id).limit(1).execute().data
+    if not rows:
+        return False, "not found"
+    row = rows[0]
+    if row["status"] != "pending":
+        return False, f"already {row['status']}"
+
+    supabase.table("questions").insert({
+        "id": row["id"], "topic_id": row["topic_id"], "type": row["type"],
+        "text": row["text"], "answer": row["answer"], "solution": row["solution"],
+        "difficulty": row["difficulty"],
+    }).execute()
+
+    if row["type"] == "mcq" and row.get("options"):
+        try:
+            correct_idx = int(row["answer"])
+        except (TypeError, ValueError):
+            correct_idx = -1
+        supabase.table("options").insert([
+            {"question_id": row["id"], "option_text": opt, "is_correct": i == correct_idx}
+            for i, opt in enumerate(row["options"])
+        ]).execute()
+
+    supabase.table("generated_questions").update({
+        "status": "approved", "reviewed_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("id", staged_id).execute()
+    return True, "approved"
+
+
+def _reject_one(staged_id: str) -> tuple[bool, str]:
+    rows = supabase.table("generated_questions").select("status").eq("id", staged_id).limit(1).execute().data
+    if not rows:
+        return False, "not found"
+    if rows[0]["status"] != "pending":
+        return False, f"already {rows[0]['status']}"
+    supabase.table("generated_questions").update({
+        "status": "rejected", "reviewed_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("id", staged_id).execute()
+    return True, "rejected"
+
+
+@app.route("/api/admin/questions/staging/<staged_id>/approve", methods=["POST"])
+def admin_staging_approve(staged_id):
+    try:
+        ok, detail = _approve_one(staged_id)
+        return jsonify({"ok": ok, "detail": detail}), (200 if ok else 400)
+    except Exception as error:  # noqa: BLE001
+        logger.exception("Approve error")
+        return jsonify({"error": "Failed to approve question", "details": str(error)}), 500
+
+
+@app.route("/api/admin/questions/staging/<staged_id>/reject", methods=["POST"])
+def admin_staging_reject(staged_id):
+    try:
+        ok, detail = _reject_one(staged_id)
+        return jsonify({"ok": ok, "detail": detail}), (200 if ok else 400)
+    except Exception as error:  # noqa: BLE001
+        logger.exception("Reject error")
+        return jsonify({"error": "Failed to reject question", "details": str(error)}), 500
+
+
+@app.route("/api/admin/questions/staging/batch-approve", methods=["POST"])
+def admin_staging_batch_approve():
+    ids = (request.get_json(silent=True) or {}).get("ids") or []
+    results = {}
+    for staged_id in ids:
+        try:
+            ok, detail = _approve_one(staged_id)
+        except Exception as error:  # noqa: BLE001
+            logger.exception("Batch approve error for %s", staged_id)
+            ok, detail = False, str(error)
+        results[staged_id] = {"ok": ok, "detail": detail}
+    return jsonify({"results": results,
+                    "approved": sum(1 for r in results.values() if r["ok"]),
+                    "failed": sum(1 for r in results.values() if not r["ok"])})
+
+
+@app.route("/api/admin/questions/staging/batch-reject", methods=["POST"])
+def admin_staging_batch_reject():
+    ids = (request.get_json(silent=True) or {}).get("ids") or []
+    results = {}
+    for staged_id in ids:
+        try:
+            ok, detail = _reject_one(staged_id)
+        except Exception as error:  # noqa: BLE001
+            logger.exception("Batch reject error for %s", staged_id)
+            ok, detail = False, str(error)
+        results[staged_id] = {"ok": ok, "detail": detail}
+    return jsonify({"results": results,
+                    "rejected": sum(1 for r in results.values() if r["ok"]),
+                    "failed": sum(1 for r in results.values() if not r["ok"])})
 
 
 if __name__ == "__main__":

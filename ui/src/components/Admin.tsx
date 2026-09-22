@@ -10,10 +10,11 @@ import type {
   AdminClass, AdminChapter, AdminTopic, AdminQuestion,
 } from '../api/client';
 import PDFUpload from './PDFUpload';
+import QuestionGenerator from './QuestionGenerator';
 
 interface Props { darkMode: boolean }
 
-type Tab = 'structure' | 'questions' | 'pdf-upload' | 'settings';
+type Tab = 'structure' | 'questions' | 'generator' | 'pdf-upload' | 'settings';
 
 // ── Shared styles ──────────────────────────────────────────────────────────────
 
@@ -936,6 +937,7 @@ export default function Admin({ darkMode }: Props) {
   const tabs: Array<{ id: Tab; label: string }> = [
     { id: 'structure', label: 'পাঠ্যক্রম কাঠামো' },
     { id: 'questions', label: 'প্রশ্ন ব্যবস্থাপনা' },
+    { id: 'generator', label: 'প্রশ্ন জেনারেটর' },
     { id: 'pdf-upload', label: 'PDF আপলোড' },
     { id: 'settings',  label: 'সেটিংস' },
   ];
@@ -982,6 +984,7 @@ export default function Admin({ darkMode }: Props) {
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         {tab === 'structure' && <StructureTab colors={colors} />}
         {tab === 'questions' && <QuestionsTab colors={colors} />}
+        {tab === 'generator' && <QuestionGenerator darkMode={darkMode} />}
         {tab === 'pdf-upload' && <PDFUpload darkMode={darkMode} />}
         {tab === 'settings'  && <SettingsTab  colors={colors} />}
       </div>
