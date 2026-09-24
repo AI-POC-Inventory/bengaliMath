@@ -19,6 +19,7 @@ export interface Chapter {
   id: string;
   name: string;
   description: string;
+  hasLesson?: boolean;   // an approved lesson is published for this chapter (see GET /chapter)
   topics: Topic[];
 }
 

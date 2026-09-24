@@ -1,6 +1,12 @@
 """
 map_class7_chapters.py
 =======================
+NOTE: superseded for its original purpose by
+database/supabase/006_chapter_gcs_map.sql (many-to-many chapter_gcs_map table;
+the six chapters this script flags REVIEW/UNMAPPED are resolved there, checked
+against the book's printed contents page). Kept as the title-overlap diff tool
+-- the "REVIEW" rows it prints for chapters 1-3, 10, 16, 20 are now expected.
+
 Dry-run only. Cross-references Supabase's `chapters` rows for class_id=7
 against the validated GCS chapter map (service/search's ingestion output —
 23 chapters, spot-checked at 10/10 boundaries when it was built) and prints a

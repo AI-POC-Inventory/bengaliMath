@@ -19,8 +19,14 @@ export const CHAT_BASE = (_rawChatBase ? _rawChatBase.replace(/\/$/, '') : CHAT_
 // This is also where the admin question generator lives (see below) -- it
 // needs to be the Supabase-connected service, not the SQLite `BASE` above.
 // Same env var ui/src/data/curriculum.ts already reads.
+//
+// Region matters: bengali-math-api is deployed in BOTH us-central1 (older,
+// created 2026-04-14, no question-generator routes) and asia-south1 (created
+// 2026-06-26, has them, and matches the chat service's region above). The
+// production default must be asia-south1 or /classes and
+// /api/admin/questions/* 404.
 const CURRICULUM_BASE_DEFAULT = import.meta.env.PROD
-  ? 'https://bengali-math-api-989713142030.us-central1.run.app'
+  ? 'https://bengali-math-api-989713142030.asia-south1.run.app'
   : 'http://localhost:5000';
 
 const _rawCurriculumBase = (import.meta.env.VITE_CURRICULUM_API_URL as string | undefined)?.trim();
@@ -241,6 +247,73 @@ export const batchRejectStaged = (ids: string[]) =>
   fetchJSON<BatchResult & { rejected: number }>(
     `${CURRICULUM_BASE}/api/admin/questions/staging/batch-reject`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) });
+
+// ── Chapter lessons ───────────────────────────────────────────────────────────
+// Generated -> reviewed/edited -> approved in Admin ("পাঠ জেনারেটর"); the live
+// lesson lives in chapters.details and students read it through the existing
+// GET /chapter endpoint. Content shape is validated server-side
+// (service/db/lesson_generator.py: validate_content).
+
+export interface LessonExample {
+  problem: string; steps: string[]; answer: string;
+  verified: boolean | null;   // true = independently re-solved OK, false = disagreed, null = not checked
+}
+export interface LessonSection {
+  title: string; explanation: string; keyPoints: string[]; examples: LessonExample[];
+  commonMistakes: string[]; quickCheck: { question: string; answer: string }[]; takeaway: string;
+}
+export interface LessonContent {
+  version: number; overview: string; prerequisites: string[]; sections: LessonSection[];
+}
+
+export type LessonStatus = 'draft' | 'approved' | 'rejected' | 'superseded';
+
+/** A row of generated_lessons. The list endpoint omits content/source_chunk_ids. */
+export interface LessonRecord {
+  id: string; class_id: number; chapter_id: string; version: number; status: LessonStatus;
+  model: string | null; created_at: string; updated_at: string; reviewed_at: string | null;
+  content?: LessonContent; source_chunk_ids?: string[] | null;
+}
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
+
+export const generateLesson = (classId: number, chapterId: string) =>
+  fetchJSON<LessonRecord>(`${CURRICULUM_BASE}/api/admin/lessons/generate`,
+    { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ classId, chapterId }) });
+
+export const listLessons = (filter: { classId?: number; chapterId?: string; status?: LessonStatus } = {}) => {
+  const params = new URLSearchParams();
+  if (filter.classId)   params.set('classId', String(filter.classId));
+  if (filter.chapterId) params.set('chapterId', filter.chapterId);
+  if (filter.status)    params.set('status', filter.status);
+  return fetchJSON<LessonRecord[]>(`${CURRICULUM_BASE}/api/admin/lessons?${params}`);
+};
+
+export const getLesson = (id: string) =>
+  fetchJSON<LessonRecord>(`${CURRICULUM_BASE}/api/admin/lessons/${id}`);
+
+export const updateLesson = (id: string, content: LessonContent) =>
+  fetchJSON<LessonRecord>(`${CURRICULUM_BASE}/api/admin/lessons/${id}`,
+    { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify({ content }) });
+
+export const approveLesson = (id: string) =>
+  fetchJSON<{ ok: boolean }>(`${CURRICULUM_BASE}/api/admin/lessons/${id}/approve`, { method: 'POST' });
+
+export const rejectLesson = (id: string) =>
+  fetchJSON<LessonRecord>(`${CURRICULUM_BASE}/api/admin/lessons/${id}/reject`, { method: 'POST' });
+
+export const cloneLesson = (id: string) =>
+  fetchJSON<LessonRecord>(`${CURRICULUM_BASE}/api/admin/lessons/${id}/clone`, { method: 'POST' });
+
+export const unpublishLesson = (chapterId: string) =>
+  fetchJSON<{ ok: boolean }>(`${CURRICULUM_BASE}/api/admin/lessons/chapter/${chapterId}/unpublish`, { method: 'POST' });
+
+/** Student read: the live (approved) lesson for a chapter, or null if none is published. */
+export async function getChapterLesson(classId: number, chapterId: string): Promise<LessonContent | null> {
+  const chapter = await fetchJSON<{ details?: LessonContent | null } | null>(
+    `${CURRICULUM_BASE}/chapter?classId=${classId}&chapterId=${encodeURIComponent(chapterId)}`);
+  return chapter?.details ?? null;
+}
 
 // ── Mistakes ──────────────────────────────────────────────────────────────────
 export function recordMistake(userId: number, questionId: string, topicId: string, chapterId: string): Promise<void> {

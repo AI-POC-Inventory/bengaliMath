@@ -18,14 +18,13 @@
 -- which case the title is corrected too). Re-run that script --sql to
 -- regenerate this block if the source data changes.
 --
--- Deliberately LEFT NULL (2026-09-22 decision, not a defect):
---   * Class 7 chapters 1, 2, 3, 10, 16, 20 -- chapter number matches but the
---     title text diverges enough that automatic matching refused to trust
---     it. Chapters 1-3 in particular proved that number-only matching is
---     unsafe here: Supabase's early chapter numbering has drifted from the
---     physical book's order (Supabase 7-2 "শতকরা"/Percentage is NOT the
---     book's chapter 2, which is Ratio). These need a human to read the
---     actual pages before they're trustworthy for content retrieval.
+-- Left NULL here, RESOLVED LATER by 006_chapter_gcs_map.sql:
+--   * Class 7 chapters 1, 2, 3, 10, 16, 20 -- the single-column design below
+--     could not express them (7-1 spans book chapters 2 and 3; 7-3 spans 6
+--     and 22; the rest had OCR-damaged titles). 006 replaces this column with
+--     the many-to-many chapter_gcs_map table and maps all six, checked
+--     against the book's printed contents page. This column is DEPRECATED.
+--
 --   * Class 7 chapter 9 (সর্বসমতার ধারণা / Congruence) -- no Supabase
 --     chapter row exists for it at all. Out of scope for this feature;
 --     the question generator will not offer this chapter until the missing

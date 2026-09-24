@@ -1,7 +1,10 @@
 import { getClassData } from '../data/curriculum';
+import { getChapterLesson } from '../api/client';
+import type { LessonContent } from '../api/client';
 import { toBengaliNumber } from '../utils/bengali';
 import type {ClassData,Chapter, Topic } from '../types';
 import { useEffect, useState } from 'react';
+import LessonView from './LessonView';
 
 interface Props {
   classId: number;
@@ -34,6 +37,26 @@ export default function Syllabus({ classId, darkMode }: Props) {
 
     loadData();
   }, [classId]);
+
+  // The lesson is fetched only when a chapter that has one is opened (it is
+  // deliberately not part of the /class payload -- see GET /chapter).
+  const [lesson, setLesson] = useState<LessonContent | null>(null);
+  const [lessonLoading, setLessonLoading] = useState(false);
+  const [lessonError, setLessonError] = useState(false);
+
+  useEffect(() => {
+    setLesson(null);
+    setLessonError(false);
+    if (!selectedChapter?.hasLesson) return;
+    let cancelled = false;
+    setLessonLoading(true);
+    getChapterLesson(classId, selectedChapter.id)
+      .then(l => { if (!cancelled) setLesson(l); })
+      .catch(() => { if (!cancelled) setLessonError(true); })
+      .finally(() => { if (!cancelled) setLessonLoading(false); });
+    return () => { cancelled = true; };
+  }, [classId, selectedChapter]);
+
   if (loading) {
     return <div style={{ padding: '2rem' }}>Loading syllabus...</div>;
   }
@@ -140,6 +163,7 @@ export default function Syllabus({ classId, darkMode }: Props) {
                 </div>
                 <div style={{ color: accent, fontSize: '0.8rem', marginTop: '0.3rem' }}>
                   {toBengaliNumber(chapter.topics.length)}টি বিষয়
+                  {chapter.hasLesson && <span style={{ marginLeft: '0.6rem', color: '#10b981' }}>📖 পাঠ আছে</span>}
                 </div>
               </div>
               <div style={{ color: subText, fontSize: '1.2rem' }}>›</div>
@@ -163,6 +187,20 @@ export default function Syllabus({ classId, darkMode }: Props) {
               {selectedChapter.description}
             </p>
           </div>
+
+          {selectedChapter.hasLesson && (
+            <div style={{ marginBottom: '2rem' }}>
+              {lessonLoading && <div style={{ color: subText, padding: '1rem 0' }}>পাঠ লোড হচ্ছে...</div>}
+              {lessonError && (
+                <div style={{ color: subText, padding: '1rem 0' }}>পাঠটি এখন দেখানো যাচ্ছে না। একটু পরে আবার চেষ্টা করো।</div>
+              )}
+              {lesson && <LessonView lesson={lesson} darkMode={darkMode} />}
+            </div>
+          )}
+
+          {selectedChapter.hasLesson && lesson && (
+            <h3 style={{ color: text, fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.8rem' }}>📝 অনুশীলনের বিষয়</h3>
+          )}
 
           <div style={{ display: 'grid', gap: '1rem' }}>
             {selectedChapter.topics.map((topic: Topic, idx: number) => (
