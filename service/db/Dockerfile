@@ -7,7 +7,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code (no .env — secrets come from Cloud Run env vars)
-COPY api.py curriculam_reader.py db_helper.py supabase_client.py embed.py question_generator.py ./
+COPY api.py curriculam_reader.py db_helper.py supabase_client.py embed.py question_generator.py lesson_generator.py ./
 
 # Cloud Run injects PORT; default to 8080
 ENV PORT=8080

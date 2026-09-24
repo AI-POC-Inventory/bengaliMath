@@ -5,11 +5,12 @@ GEMINI_API_KEY, response_mime_type="application/json", Bengali prompts) rather
 than introducing a new LLM-calling convention.
 
 Pipeline for one POST /api/admin/questions/generate call:
-  1. resolve the chapter's gcs_chapter_no (400 if unmapped -- chapters left
-     NULL by database/map_class7_chapters.py are chapters this feature
-     genuinely cannot serve yet, not a bug to paper over)
+  1. resolve the chapter's book chapters from chapter_gcs_map (400 if none --
+     an unmapped chapter is one this feature genuinely cannot serve yet, not
+     a bug to paper over). One Supabase chapter can span several book
+     chapters (e.g. 7-1 = book ch 2 + 3), hence a table, not a column.
   2. retrieve grounding context from bengali-math-search (the GCS-indexed
-     textbook), filtered to that chapter
+     textbook), filtered to each mapped book chapter
   3. generate candidates in small per-difficulty-band batches via Gemini
   4. embed every candidate and every existing question already in that topic,
      flag near-duplicates by cosine similarity (does NOT auto-reject --
@@ -60,7 +61,10 @@ def resolve_chapter(class_id: int, chapter_id: str) -> dict:
     if not rows:
         raise GenerationError("অধ্যায় পাওয়া যায়নি (chapter not found)", 404)
     chapter = rows[0]
-    if chapter.get("gcs_chapter_no") is None:
+    maps = (supabase.table("chapter_gcs_map").select("gcs_chapter_no")
+           .eq("chapter_id", chapter_id).execute().data)
+    chapter["gcs_chapter_nos"] = sorted({m["gcs_chapter_no"] for m in maps or []})
+    if not chapter["gcs_chapter_nos"]:
         raise GenerationError(
             "এই অধ্যায়ের পাঠ্যবই এখনও ইনডেক্স করা হয়নি, তাই প্রশ্ন তৈরি করা যাচ্ছে না। "
             "(This chapter's textbook content hasn't been indexed/mapped yet.)", 400)
@@ -77,18 +81,36 @@ def resolve_topic(chapter_id: str, topic_id: str) -> dict:
 
 # ── Retrieval ─────────────────────────────────────────────────────────────
 
-def retrieve_context(topic: dict, gcs_chapter_no: int) -> tuple[str, list[str]]:
-    """Query bengali-math-search, filtered to this chapter via the query text
-    itself (its own parse_filters() regexes for "অধ্যায় N" -- no API change
-    needed on that service, see service/search/serve/retrieve.py)."""
+def _search_chapter(topic: dict, gcs_chapter_no: int, top: int) -> list[dict]:
+    """Query bengali-math-search, filtered to one book chapter via the query
+    text itself (its own parse_filters() regexes for "অধ্যায় N" -- no API
+    change needed on that service, see service/search/serve/retrieve.py)."""
     query = f"{topic['name']} {topic.get('description') or ''} অধ্যায় {gcs_chapter_no}".strip()
     try:
         resp = requests.get(f"{SEARCH_API_URL}/search",
-                            params={"q": query, "top": RETRIEVAL_TOP_K}, timeout=30)
+                            params={"q": query, "top": top}, timeout=30)
         resp.raise_for_status()
-        results = resp.json().get("results", [])
+        return resp.json().get("results", [])
     except requests.RequestException as e:
         raise GenerationError(f"সার্চ সার্ভিসে সংযোগ ব্যর্থ হয়েছে: {e}", 502) from e
+
+
+def retrieve_context(topic: dict, gcs_chapter_nos: list[int],
+                     top_k: int = RETRIEVAL_TOP_K) -> tuple[str, list[str]]:
+    """Grounding context for a topic. When the Supabase chapter maps to several
+    book chapters, each is searched and the results are interleaved rank by
+    rank (the search API returns ranked results without a comparable score),
+    so the total stays at top_k and no one chapter crowds out the others."""
+    per_chapter = -(-top_k // len(gcs_chapter_nos))      # ceil
+    ranked = [_search_chapter(topic, n, per_chapter) for n in gcs_chapter_nos]
+
+    results, seen = [], set()
+    for rank in range(per_chapter):
+        for chapter_results in ranked:
+            if rank < len(chapter_results) and chapter_results[rank].get("id") not in seen:
+                seen.add(chapter_results[rank].get("id"))
+                results.append(chapter_results[rank])
+    results = results[:top_k]
 
     if not results:
         raise GenerationError(
@@ -137,7 +159,7 @@ def _type_split(n: int, question_type: str) -> list[tuple[str, int]]:
     return [(t, c) for t, c in (("mcq", mcq_n), ("short", short_n)) if c > 0]
 
 
-def _build_prompt(topic_name: str, chapter_no: int, context: str,
+def _build_prompt(topic_name: str, chapter_no: str, context: str,
                   n: int, difficulty: str, qtype: str) -> str:
     diff_bn = DIFFICULTY_BN[difficulty]
     type_instruction = (
@@ -174,7 +196,7 @@ def _build_prompt(topic_name: str, chapter_no: int, context: str,
 (সংক্ষিপ্ত উত্তরের প্রশ্নে "options" ফিল্ড বাদ দাও।)"""
 
 
-def _call_gemini(prompt: str) -> str:
+def _call_gemini(prompt: str, temperature: float = 0.8, model: str | None = None) -> str:
     from google import genai
     from google.genai import types
 
@@ -184,9 +206,9 @@ def _call_gemini(prompt: str) -> str:
 
     client = genai.Client(api_key=api_key)
     response = client.models.generate_content(
-        model=QUESTION_GEN_MODEL,
+        model=model or QUESTION_GEN_MODEL,
         contents=prompt,
-        config=types.GenerateContentConfig(temperature=0.8, response_mime_type="application/json"),
+        config=types.GenerateContentConfig(temperature=temperature, response_mime_type="application/json"),
     )
     return response.text or ""
 
@@ -233,7 +255,7 @@ def _parse_candidates(raw_text: str) -> list[dict]:
     return out
 
 
-def _generate_band(topic_name: str, chapter_no: int, context: str,
+def _generate_band(topic_name: str, chapter_no: str, context: str,
                    difficulty: str, qtype: str, n: int) -> list[dict]:
     """One difficulty+type band, looped in GEN_BATCH_SIZE chunks."""
     candidates, produced, stalls = [], 0, 0
@@ -305,16 +327,17 @@ def generate(class_id: int, chapter_id: str, topic_id: str, count: int,
 
     chapter = resolve_chapter(class_id, chapter_id)
     topic = resolve_topic(chapter_id, topic_id)
-    gcs_chapter_no = chapter["gcs_chapter_no"]
+    gcs_chapter_nos = chapter["gcs_chapter_nos"]
+    chapter_label = ", ".join(str(n) for n in gcs_chapter_nos)      # prompt: "2, 3"
 
-    context, source_chunk_ids = retrieve_context(topic, gcs_chapter_no)
+    context, source_chunk_ids = retrieve_context(topic, gcs_chapter_nos)
 
     bands = _band_counts(count, difficulty_mix)
     raw_candidates: list[dict] = []
     for difficulty, n in bands:
         for qtype, tn in _type_split(n, question_type):
             raw_candidates.extend(
-                _generate_band(topic["name"], gcs_chapter_no, context, difficulty, qtype, tn))
+                _generate_band(topic["name"], chapter_label, context, difficulty, qtype, tn))
 
     if not raw_candidates:
         raise GenerationError(
@@ -350,7 +373,7 @@ def generate(class_id: int, chapter_id: str, topic_id: str, count: int,
     audit_uri = _write_audit_blob(batch_id, class_id, {
         "batchId": batch_id, "classId": class_id, "chapterId": chapter_id, "topicId": topic_id,
         "count": count, "difficultyMix": difficulty_mix, "questionType": question_type,
-        "gcsChapterNo": gcs_chapter_no, "sourceChunkIds": source_chunk_ids,
+        "gcsChapterNos": gcs_chapter_nos, "sourceChunkIds": source_chunk_ids,
         "candidates": rows,
     })
 

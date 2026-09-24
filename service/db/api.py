@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request, Response, stream_with_context
 from curriculam_reader import get_class_data, get_chapter, get_topic, get_all_questions
 from supabase_client import supabase
 from question_generator import generate as generate_questions, GenerationError
+import lesson_generator as lessons
 import json
 import os
 import re
@@ -429,6 +430,69 @@ def admin_staging_batch_reject():
     return jsonify({"results": results,
                     "rejected": sum(1 for r in results.values() if r["ok"]),
                     "failed": sum(1 for r in results.values() if not r["ok"])})
+
+
+# ── Admin: Chapter Lessons ───────────────────────────────────────────────
+# Generate -> review/edit -> approve, same staging pattern as the question
+# generator. Approving publishes into chapters.details, which students read via
+# the existing GET /chapter endpoint (no separate student route needed).
+
+def _lesson_response(fn, *args, **kwargs):
+    """Run a lesson_generator call and map its errors to JSON responses."""
+    try:
+        return jsonify(fn(*args, **kwargs))
+    except GenerationError as e:
+        return jsonify({"error": e.message}), e.status
+    except Exception as error:  # noqa: BLE001
+        logger.exception("Lesson %s error", getattr(fn, "__name__", "call"))
+        return jsonify({"error": "Lesson operation failed", "details": str(error)}), 500
+
+
+@app.route("/api/admin/lessons/generate", methods=["POST"])
+def admin_lesson_generate():
+    body = request.get_json(silent=True) or {}
+    if not body.get("classId") or not body.get("chapterId"):
+        return jsonify({"error": "Missing required fields: classId, chapterId"}), 400
+    return _lesson_response(lessons.generate, int(body["classId"]), body["chapterId"])
+
+
+@app.route("/api/admin/lessons")
+def admin_lesson_list():
+    class_id = request.args.get("classId")
+    return _lesson_response(lessons.list_lessons,
+                            int(class_id) if class_id else None,
+                            request.args.get("chapterId"), request.args.get("status"))
+
+
+@app.route("/api/admin/lessons/<lesson_id>")
+def admin_lesson_get(lesson_id):
+    return _lesson_response(lessons.get_lesson, lesson_id)
+
+
+@app.route("/api/admin/lessons/<lesson_id>", methods=["PUT"])
+def admin_lesson_update(lesson_id):
+    body = request.get_json(silent=True) or {}
+    return _lesson_response(lessons.update_lesson, lesson_id, body.get("content"))
+
+
+@app.route("/api/admin/lessons/<lesson_id>/approve", methods=["POST"])
+def admin_lesson_approve(lesson_id):
+    return _lesson_response(lessons.approve_lesson, lesson_id)
+
+
+@app.route("/api/admin/lessons/<lesson_id>/reject", methods=["POST"])
+def admin_lesson_reject(lesson_id):
+    return _lesson_response(lessons.reject_lesson, lesson_id)
+
+
+@app.route("/api/admin/lessons/<lesson_id>/clone", methods=["POST"])
+def admin_lesson_clone(lesson_id):
+    return _lesson_response(lessons.clone_lesson, lesson_id)
+
+
+@app.route("/api/admin/lessons/chapter/<chapter_id>/unpublish", methods=["POST"])
+def admin_lesson_unpublish(chapter_id):
+    return _lesson_response(lessons.unpublish_lesson, chapter_id)
 
 
 if __name__ == "__main__":
