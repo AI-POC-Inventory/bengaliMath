@@ -76,18 +76,26 @@ def _outline_prompt(chapter_name: str, context: str) -> str:
 
 কাজ: অধ্যায়টি এমন একজন শিক্ষার্থীকে শেখানোর জন্য সাজাও যে বিষয়টি একেবারে গোড়া থেকে শিখছে।
 ১. অধ্যায়টিকে {MIN_SECTIONS} থেকে {MAX_SECTIONS}টি ধারণা-ভিত্তিক অংশে ভাগ করো, সহজ থেকে কঠিন ক্রমে।
-২. শুধু প্রসঙ্গে থাকা বিষয় ব্যবহার করো। "কষে দেখি", "নিজে করি"-র মতো অনুশীলনীর নাম অংশের শিরোনাম হবে না।
+২. শুধু প্রসঙ্গে থাকা বিষয় ব্যবহার করো। "কষে দেখি", "নিজে করি"-র মতো অনুশীলনীর নাম অংশের শিরোনাম হবে না। শিরোনাম শুধু বাংলায় লিখবে, ইংরেজি প্রতিশব্দ বন্ধনীতে দেবে না।
 ৩. overview: অধ্যায়টি কী নিয়ে এবং দৈনন্দিন জীবনে কেন কাজে লাগে - ২ থেকে ৪টি সহজ বাক্যে।
-৪. prerequisites: শুরুর আগে যা জানা দরকার (২-৪টি ছোট বাক্যাংশ); নিশ্চিত না হলে ফাঁকা তালিকা দাও।
+৪. prerequisites: শুরুর আগে যা জানা দরকার (২-৪টি ছোট বাক্যাংশ, শুধু বাংলায় - ইংরেজি প্রতিশব্দ বন্ধনীতে দেবে না); নিশ্চিত না হলে ফাঁকা তালিকা দাও।
+৫. প্রসঙ্গের ভেতরের [ ] চিহ্নের আইডি (যেমন c7.ch02...) লেখায় দেবে না।
+৬. ক্রমটি এমন হতে হবে যেন কোনো অংশ এমন নিয়ম বা ধারণার ওপর নির্ভর না করে যা আগের কোনো অংশে শেখানো হয়নি। অধ্যায়ের প্রয়োজনীয় সব মূল নিয়ম (যেমন সূচকের গুণের নিয়ম) নিজস্ব অংশ পাবে - কোনোটি বাদ দিয়ে পরের অংশ সাজাবে না।
 
 শুধু নিচের JSON ফরম্যাটে উত্তর দাও:
 {{"overview": "...", "prerequisites": ["..."], "sections": [{{"title": "অংশের শিরোনাম", "focus": "এই অংশে কোন ধারণা/নিয়ম/পদ্ধতি শেখানো হবে (এক বাক্যে)"}}]}}"""
 
 
-def _section_prompt(chapter_name: str, title: str, focus: str, context: str) -> str:
+def _section_prompt(chapter_name: str, title: str, focus: str, context: str,
+                    index: int = 1, outline: list[str] | None = None) -> str:
+    outline = outline or [title]
+    order = "\n".join(f"  {i}. {t}" for i, t in enumerate(outline, start=1))
     return f"""তুমি একজন ধৈর্যশীল গণিত শিক্ষক। শিক্ষার্থী বিষয়টি একেবারে গোড়া থেকে শিখছে - কোনো কিছু আগে থেকে জানা ধরে নেবে না।
 
 অধ্যায়: {chapter_name}
+এটি অধ্যায়ের {index}/{len(outline)} নম্বর অংশ। পুরো অধ্যায়ের অংশগুলো (ক্রমানুসারে):
+{order}
+
 অংশ: {title} - {focus}
 
 --- পাঠ্যবইয়ের প্রসঙ্গ শুরু ---
@@ -98,12 +106,15 @@ def _section_prompt(chapter_name: str, title: str, focus: str, context: str) -> 
 ১. সংজ্ঞা, সূত্র, নিয়ম ও চিহ্ন শুধুই উপরের প্রসঙ্গ থেকে নেবে। প্রসঙ্গে নেই এমন কোনো নতুন নিয়ম, সূত্র বা তথ্য যোগ করবে না।
 ২. বোঝানোর জন্য সহজ ভাষা, দৈনন্দিন জীবনের উপমা এবং নতুন উদাহরণ ব্যবহার করতে পারো।
 ৩. ভাষা সহজ বাংলা, ছোট বাক্য। কোনো কঠিন শব্দ প্রথমবার এলে সহজ কথায় বুঝিয়ে দাও।
-৪. explanation: ধাপে ধাপে ২ থেকে ৪টি অনুচ্ছেদ; অনুচ্ছেদের মাঝে একটি ফাঁকা লাইন।
-৫. keyPoints: মনে রাখার মতো সংজ্ঞা/নিয়ম (২-৪টি), পাঠ্যবইয়ের শব্দে।
-৬. examples: ২ থেকে ৩টি, সহজ থেকে কঠিন। প্রথমটি পাঠ্যবইয়ের উদাহরণ হলে ভালো। steps-এর প্রতিটি ধাপ আলাদা এলিমেন্ট, প্রতি ধাপে কী করছি ও কেন - সংক্ষেপে। answer-এ শুধু চূড়ান্ত উত্তর।
-৭. প্রতিটি গণনা সাবধানে যাচাই করে লিখবে; ভুল উত্তর কোনোভাবেই চলবে না।
-৮. commonMistakes: শিক্ষার্থীরা সাধারণত যে ভুল করে (১-৩টি)। quickCheck: উত্তরসহ ২-৩টি ছোট প্রশ্ন (উত্তর সংক্ষিপ্ত)। takeaway: এই অংশের মূল কথা এক বাক্যে।
-৯. {_MATH_TEXT_RULE}
+৪. কোনো অভিবাদন বা স্বাগত বার্তা লিখবে না ("স্বাগতম", "আজ আমরা শিখব" ইত্যাদি নয়) - অধ্যায়ের ভূমিকা আলাদা জায়গায় আছে। সরাসরি এই অংশের বিষয়ে ঢুকবে।
+৫. শুধু এই অংশ ও এর আগের অংশগুলোতে শেখানো ধারণা ব্যবহার করবে। পরের অংশগুলোতে যে নিয়ম বা ধারণা শেখানো হবে, তা এখানে ব্যাখ্যা বা উদাহরণে ব্যবহার করবে না।
+৬. প্রসঙ্গের ভেতরের [ ] চিহ্নের আইডি বা কোনো সূত্র-নির্দেশ (যেমন c7.ch02...) লেখায় কখনোই দেবে না।
+৭. explanation: ধাপে ধাপে ২ থেকে ৪টি অনুচ্ছেদ; অনুচ্ছেদের মাঝে একটি ফাঁকা লাইন।
+৮. keyPoints: মনে রাখার মতো সংজ্ঞা/নিয়ম (২-৪টি), পাঠ্যবইয়ের শব্দে।
+৯. examples: ২ থেকে ৩টি, সহজ থেকে কঠিন। প্রথমটি পাঠ্যবইয়ের উদাহরণ হলে ভালো। steps-এর প্রতিটি ধাপ আলাদা এলিমেন্ট, প্রতি ধাপে কী করছি ও কেন - সংক্ষেপে। answer-এ শুধু চূড়ান্ত উত্তর।
+১০. প্রতিটি গণনা সাবধানে যাচাই করে লিখবে; ভুল উত্তর কোনোভাবেই চলবে না।
+১১. commonMistakes: শিক্ষার্থীরা সাধারণত যে ভুল করে (১-৩টি)। quickCheck: উত্তরসহ ২-৩টি ছোট প্রশ্ন (উত্তর সংক্ষিপ্ত)। takeaway: এই অংশের মূল কথা এক বাক্যে।
+১২. {_MATH_TEXT_RULE}
 
 শুধু নিচের JSON ফরম্যাটে উত্তর দাও:
 {{"title": "{title}", "explanation": "...", "keyPoints": ["..."],
@@ -157,8 +168,22 @@ def _call_json(prompt: str, want: type, temperature: float, attempts: int = 2):
 
 # ── Content validation (used for generated AND admin-edited content) ─────
 
+# The retrieval context labels every chunk "[c7.ch03.p46.322] ..."; the model
+# sometimes echoes those ids into the lesson as citations. They mean nothing to
+# a student, so they are stripped -- from generated text here, and from
+# admin-edited text too since every string passes through _text().
+# Bracketed form first (ids can themselves end in "(c)"/"(iv)", hence the
+# lookahead for what follows the closing bracket), then any bare id.
+_REF_BRACKETED = re.compile(r"\s*[\(\[]\s*c\d+\.ch\d+\.[^\n]*?[\)\]](?=[\s.,;:।]|$)")
+_REF_BARE = re.compile(r"\s*\bc\d+\.ch\d+\.[^\s,;।\]\)]*(?:\([a-zA-Z0-9]*\))?[^\s,;।\]\)]*")
+
+
+def strip_refs(text: str) -> str:
+    return _REF_BARE.sub("", _REF_BRACKETED.sub("", text))
+
+
 def _text(value, limit: int = 8000) -> str:
-    return value.strip()[:limit] if isinstance(value, str) else ""
+    return strip_refs(value).strip()[:limit] if isinstance(value, str) else ""
 
 
 def _lines(value) -> list[str]:
@@ -221,7 +246,8 @@ def validate_content(content) -> dict:
 
 # ── Generation ───────────────────────────────────────────────────────────
 
-def _make_section(chapter_name: str, gcs_chapter_nos: list[int], plan: dict) -> tuple[dict | None, list[str]]:
+def _make_section(chapter_name: str, gcs_chapter_nos: list[int], plan: dict,
+                  index: int, outline: list[str]) -> tuple[dict | None, list[str]]:
     title = _text(plan.get("title"), 300)
     focus = _text(plan.get("focus"), 600)
     topic = {"name": title, "description": focus}
@@ -230,7 +256,11 @@ def _make_section(chapter_name: str, gcs_chapter_nos: list[int], plan: dict) -> 
     except GenerationError as e:
         log.warning("no context for section %r: %s", title, e.message)
         return None, []
-    data = _call_json(_section_prompt(chapter_name, title, focus, context), dict, temperature=0.4)
+    # Sections are generated in parallel and cannot see each other's output, so
+    # each is told its position and the whole outline (to avoid greeting again
+    # or using an idea a later section teaches).
+    data = _call_json(_section_prompt(chapter_name, title, focus, context, index, outline),
+                      dict, temperature=0.4)
     return data, chunk_ids
 
 
@@ -265,9 +295,12 @@ def build_lesson(chapter_name: str, gcs_chapter_nos: list[int]) -> tuple[dict, l
     if len(plans) < MIN_SECTIONS:
         raise GenerationError("পাঠের রূপরেখা তৈরি করা যায়নি, আবার চেষ্টা করুন।", 502)
     plans = plans[:MAX_SECTIONS]
+    outline_titles = [_text(p.get("title"), 300) for p in plans]
 
     with ThreadPoolExecutor(max_workers=SECTION_WORKERS) as pool:
-        made = list(pool.map(lambda p: _make_section(chapter_name, gcs_chapter_nos, p), plans))
+        made = list(pool.map(
+            lambda ip: _make_section(chapter_name, gcs_chapter_nos, ip[1], ip[0], outline_titles),
+            enumerate(plans, start=1)))
 
     sections, chunk_ids = [], list(outline_ids)
     for plan, (data, ids) in zip(plans, made):

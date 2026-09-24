@@ -46,6 +46,42 @@ def test_validate_rejects_bad_shapes(bad):
     assert e.value.status == 400
 
 
+@pytest.mark.parametrize("chunk_id", [
+    "c7.ch03.p46.322", "c7.ch02.2.235", "c7.ch16.16.(c)", "c7.ch01.1.2.1(iv)", "c7.ch03.p55.13.",
+])
+@pytest.mark.parametrize("template", [
+    "নিয়ম ({}) এবং", "নিয়ম [{}]।", "শেষ ({})", "দুটি ({0}, {0}) একসাথে।", "বন্ধনী ছাড়া {} এখানে।",
+])
+def test_leaked_chunk_ids_are_stripped(chunk_id, template):
+    out = lg.strip_refs(template.format(chunk_id))
+    assert "c7.ch" not in out and "()" not in out and "[]" not in out
+
+
+def test_strip_refs_leaves_normal_text_alone():
+    for text in ["(৩ + ৪) × ২ = 14", "উত্তর (ক) সঠিক", "[১, ২, ৩]", "চিত্র (i) থেকে",
+                 "c = 5 এবং d = 6", "সূত্র (a + b)² = a² + 2ab + b²"]:
+        assert lg.strip_refs(text) == text
+
+
+def test_refs_are_stripped_from_generated_and_edited_content():
+    dirty = {"overview": "ভূমিকা (c7.ch02.2.235)", "sections": [{
+        "title": "T", "explanation": "নিয়ম (c7.ch03.p49.11)। শেষ",
+        "keyPoints": ["পদ [c7.ch03.p48.10]"],
+        "examples": [{"problem": "p (c7.ch01.1.2.1(iv))", "steps": ["ধাপ (c7.ch03.p49.11)"], "answer": "1"}]}]}
+    c = lg.validate_content(dirty)
+    assert "c7.ch" not in json.dumps(c, ensure_ascii=False)
+    assert c["sections"][0]["explanation"] == "নিয়ম। শেষ"
+
+
+def test_section_prompt_carries_position_outline_and_no_greeting_rule():
+    prompt = lg._section_prompt("Ch", "T2", "f", "ctx", index=2, outline=["T1", "T2", "T3"])
+    assert "2/3 নম্বর অংশ" in prompt
+    assert all(t in prompt for t in ("1. T1", "2. T2", "3. T3"))
+    assert "অভিবাদন বা স্বাগত" in prompt                       # no greeting
+    assert "পরের অংশগুলোতে" in prompt                          # no forward references
+    assert "c7.ch02" in prompt                                # tells the model not to echo chunk ids
+
+
 def test_loads_tolerates_surrounding_text():
     assert lg._loads('{"a":1}') == {"a": 1}
     assert lg._loads('noise {"a":1} tail') == {"a": 1}
