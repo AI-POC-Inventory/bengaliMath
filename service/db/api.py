@@ -339,32 +339,19 @@ def admin_staging_list():
 
 
 def _approve_one(staged_id: str) -> tuple[bool, str]:
-    rows = supabase.table("generated_questions").select("*").eq("id", staged_id).limit(1).execute().data
-    if not rows:
-        return False, "not found"
-    row = rows[0]
-    if row["status"] != "pending":
-        return False, f"already {row['status']}"
-
-    supabase.table("questions").insert({
-        "id": row["id"], "topic_id": row["topic_id"], "type": row["type"],
-        "text": row["text"], "answer": row["answer"], "solution": row["solution"],
-        "difficulty": row["difficulty"],
-    }).execute()
-
-    if row["type"] == "mcq" and row.get("options"):
-        try:
-            correct_idx = int(row["answer"])
-        except (TypeError, ValueError):
-            correct_idx = -1
-        supabase.table("options").insert([
-            {"question_id": row["id"], "option_text": opt, "is_correct": i == correct_idx}
-            for i, opt in enumerate(row["options"])
-        ]).execute()
-
-    supabase.table("generated_questions").update({
-        "status": "approved", "reviewed_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("id", staged_id).execute()
+    """Publish one staged question. The question insert, its options and the
+    status flip all happen inside the approve_generated_question() Postgres
+    function (migration 008) -- one transaction, so a failure part-way can no
+    longer leave a question live while staging still says "pending"."""
+    try:
+        supabase.rpc("approve_generated_question", {"p_id": staged_id}).execute()
+    except Exception as error:  # noqa: BLE001
+        message = getattr(error, "message", None) or str(error)
+        if "not found" in message:
+            return False, "not found"
+        if "already " in message:
+            return False, message[message.index("already "):].split('"')[0]
+        raise
     return True, "approved"
 
 
