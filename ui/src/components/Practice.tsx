@@ -3,6 +3,7 @@ import { getClassData, getAllQuestions } from '../data/curriculum';
 import { toBengaliNumber, toBengaliPercent, bengaliOptionLabels } from '../utils/bengali';
 import { saveSession, recordMistake } from '../api/client';
 import { getCurrentUser } from '../utils/storage';
+import { normalizeMcqAnswer, shortAnswersMatch } from '../utils/answers';
 import type { PracticeSession, SessionQuestion } from '../types';
 import type { ClassData, Question } from '../types';
 import { useEffect } from 'react';
@@ -88,7 +89,15 @@ export default function Practice({ classId, darkMode }: Props) {
 
   if (!pool || pool.length === 0) return;
     const shuffled = [...pool].sort(() => Math.random() - 0.5).slice(0, 10);
-    setQuestions(shuffled.map(q => ({ question: q.question, topicId: q.topicId, chapterId: q.chapterId })));
+    // The API delivers answers as strings; MCQ answers are compared against a
+    // numeric option index below, so normalise them once here.
+    setQuestions(shuffled.map(q => ({
+      question: q.question.type === 'mcq'
+        ? { ...q.question, answer: normalizeMcqAnswer(q.question.answer) }
+        : q.question,
+      topicId: q.topicId,
+      chapterId: q.chapterId,
+    })));
     setCurrentIdx(0);
     setAnswered(null);
     setShowSolution(false);
@@ -107,10 +116,8 @@ export default function Practice({ classId, darkMode }: Props) {
     if (q.question.type === 'mcq') {
       correct = choice === q.question.answer;
     } else {
-      // For short answer, compare the student's answer with the correct answer
-      const studentAnswer = String(choice).trim().toLowerCase();
-      const correctAnswer = String(q.question.answer).trim().toLowerCase();
-      correct = studentAnswer === correctAnswer;
+      // Short answer: tolerant match (Bengali/Latin digits, spaces, "%", 0.50 vs 0.5)
+      correct = shortAnswersMatch(String(choice), String(q.question.answer));
     }
 
     // Record mistake if answer is incorrect
@@ -164,7 +171,10 @@ export default function Practice({ classId, darkMode }: Props) {
   }
 
   const currentQ = questions[currentIdx];
-  const score = sessionAnswers.filter(a => a.correct).length;
+  // Same rule handleAnswer scored with, so the ✓/✗ shown always agrees with it.
+  const isShortCorrect = !!currentQ && typeof answered === 'string'
+    && shortAnswersMatch(answered, String(currentQ.question.answer));
+  const score =sessionAnswers.filter(a => a.correct).length;
   const totalAnswered = sessionAnswers.length;
 
   const getMotivation = (pct: number) => {
@@ -546,14 +556,14 @@ export default function Practice({ classId, darkMode }: Props) {
             <div>
               {/* Student's answer */}
               <div style={{
-                background: answered === currentQ.question.answer ? '#10b98120' : '#ef444420',
-                border: `2px solid ${answered === currentQ.question.answer ? '#10b981' : '#ef4444'}`,
+                background: isShortCorrect ? '#10b98120' : '#ef444420',
+                border: `2px solid ${isShortCorrect ? '#10b981' : '#ef4444'}`,
                 borderRadius: '0.8rem',
                 padding: '1rem 1.2rem',
                 marginBottom: '0.7rem',
               }}>
                 <div style={{
-                  color: answered === currentQ.question.answer ? '#10b981' : '#ef4444',
+                  color: isShortCorrect ? '#10b981' : '#ef4444',
                   fontWeight: '600',
                   marginBottom: '0.3rem',
                   fontSize: '0.9rem',
@@ -561,7 +571,7 @@ export default function Practice({ classId, darkMode }: Props) {
                   alignItems: 'center',
                   gap: '0.5rem',
                 }}>
-                  {answered === currentQ.question.answer ? '✓ সঠিক!' : '✗ ভুল'}
+                  {isShortCorrect ? '✓ সঠিক!' : '✗ ভুল'}
                   <span style={{ marginLeft: 'auto', fontSize: '0.85rem', fontWeight: '400' }}>আপনার উত্তর:</span>
                 </div>
                 <div style={{ color: text, fontSize: '1rem' }}>
@@ -570,7 +580,7 @@ export default function Practice({ classId, darkMode }: Props) {
               </div>
 
               {/* Correct answer (shown if student was wrong) */}
-              {answered !== currentQ.question.answer && (
+              {!isShortCorrect && (
                 <div style={{
                   background: '#10b98120',
                   border: `2px solid #10b981`,
