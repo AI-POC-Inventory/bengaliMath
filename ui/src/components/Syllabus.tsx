@@ -1,6 +1,6 @@
 import { getClassData } from '../data/curriculum';
-import { getChapterLesson } from '../api/client';
-import type { LessonContent } from '../api/client';
+import { getChapterLesson, getChapterVideo } from '../api/client';
+import type { LessonContent, ChapterVideo } from '../api/client';
 import { toBengaliNumber } from '../utils/bengali';
 import type {ClassData,Chapter, Topic } from '../types';
 import { useEffect, useState } from 'react';
@@ -54,6 +54,23 @@ export default function Syllabus({ classId, darkMode }: Props) {
       .then(l => { if (!cancelled) setLesson(l); })
       .catch(() => { if (!cancelled) setLessonError(true); })
       .finally(() => { if (!cancelled) setLessonLoading(false); });
+    return () => { cancelled = true; };
+  }, [classId, selectedChapter]);
+
+  // Same on-demand pattern as the lesson: fetched only when a chapter that
+  // has one is opened.
+  const [video, setVideo] = useState<ChapterVideo | null>(null);
+  const [videoLoading, setVideoLoading] = useState(false);
+
+  useEffect(() => {
+    setVideo(null);
+    if (!selectedChapter?.hasVideo) return;
+    let cancelled = false;
+    setVideoLoading(true);
+    getChapterVideo(classId, selectedChapter.id)
+      .then(v => { if (!cancelled) setVideo(v); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setVideoLoading(false); });
     return () => { cancelled = true; };
   }, [classId, selectedChapter]);
 
@@ -164,6 +181,7 @@ export default function Syllabus({ classId, darkMode }: Props) {
                 <div style={{ color: accent, fontSize: '0.8rem', marginTop: '0.3rem' }}>
                   {toBengaliNumber(chapter.topics.length)}টি বিষয়
                   {chapter.hasLesson && <span style={{ marginLeft: '0.6rem', color: '#10b981' }}>📖 পাঠ আছে</span>}
+                  {chapter.hasVideo && <span style={{ marginLeft: '0.6rem', color: '#3b82f6' }}>📹 ভিডিও আছে</span>}
                 </div>
               </div>
               <div style={{ color: subText, fontSize: '1.2rem' }}>›</div>
@@ -187,6 +205,21 @@ export default function Syllabus({ classId, darkMode }: Props) {
               {selectedChapter.description}
             </p>
           </div>
+
+          {selectedChapter.hasVideo && (
+            <div style={{ marginBottom: '1.5rem' }}>
+              {videoLoading && <div style={{ color: subText, padding: '1rem 0' }}>ভিডিও লোড হচ্ছে...</div>}
+              {video && (
+                <video
+                  controls
+                  poster={video.thumbnailUrl ?? undefined}
+                  style={{ width: '100%', maxWidth: '720px', borderRadius: '0.9rem', background: '#000', display: 'block' }}
+                >
+                  <source src={video.url} type="video/mp4" />
+                </video>
+              )}
+            </div>
+          )}
 
           {selectedChapter.hasLesson && (
             <div style={{ marginBottom: '2rem' }}>

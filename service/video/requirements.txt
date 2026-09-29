@@ -1,0 +1,5 @@
+supabase
+python-dotenv
+google-cloud-texttospeech
+google-cloud-storage
+pillow

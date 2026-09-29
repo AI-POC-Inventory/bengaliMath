@@ -20,6 +20,7 @@ export interface Chapter {
   name: string;
   description: string;
   hasLesson?: boolean;   // an approved lesson is published for this chapter (see GET /chapter)
+  hasVideo?: boolean;    // an approved video is published for this chapter
   topics: Topic[];
 }
 

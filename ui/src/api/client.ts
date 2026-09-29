@@ -315,6 +315,62 @@ export async function getChapterLesson(classId: number, chapterId: string): Prom
   return chapter?.details ?? null;
 }
 
+// ── Chapter videos ────────────────────────────────────────────────────────────
+// Same generate -> review -> approve shape as lessons, one structural
+// difference: generation is asynchronous (a Cloud Run Job renders the video;
+// see service/video/), so generateVideo() returns a 'generating' row
+// immediately and the caller polls getVideo()/listVideos() for it to become
+// 'draft' (ready to review) or 'failed'. The video narrates an already-
+// approved lesson, so a chapter needs hasLesson before it can have a video.
+
+export type VideoStatus = 'generating' | 'draft' | 'approved' | 'rejected' | 'superseded' | 'failed';
+
+/** A row of chapter_videos. The list endpoint omits the script (narration text per slide). */
+export interface VideoRecord {
+  id: string; class_id: number; chapter_id: string; version: number; status: VideoStatus;
+  source: 'generated' | 'uploaded';
+  duration_seconds: number | null;
+  gcs_video_path: string | null; gcs_thumbnail_path: string | null;
+  error: string | null;
+  created_at: string; updated_at: string; reviewed_at: string | null;
+  script?: unknown; tts_voice?: string | null; source_lesson_id?: string | null;
+}
+
+const PUBLIC_BUCKET_URL = 'https://storage.googleapis.com/ganit-siksha/';
+export const videoUrl = (path: string) => PUBLIC_BUCKET_URL + path;
+
+export const generateVideo = (classId: number, chapterId: string) =>
+  fetchJSON<VideoRecord>(`${CURRICULUM_BASE}/api/admin/videos/generate`,
+    { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ classId, chapterId }) });
+
+export const listVideos = (filter: { classId?: number; chapterId?: string; status?: VideoStatus } = {}) => {
+  const params = new URLSearchParams();
+  if (filter.classId)   params.set('classId', String(filter.classId));
+  if (filter.chapterId) params.set('chapterId', filter.chapterId);
+  if (filter.status)    params.set('status', filter.status);
+  return fetchJSON<VideoRecord[]>(`${CURRICULUM_BASE}/api/admin/videos?${params}`);
+};
+
+export const getVideo = (id: string) =>
+  fetchJSON<VideoRecord>(`${CURRICULUM_BASE}/api/admin/videos/${id}`);
+
+export const approveVideo = (id: string) =>
+  fetchJSON<{ ok: boolean }>(`${CURRICULUM_BASE}/api/admin/videos/${id}/approve`, { method: 'POST' });
+
+export const rejectVideo = (id: string) =>
+  fetchJSON<VideoRecord[]>(`${CURRICULUM_BASE}/api/admin/videos/${id}/reject`, { method: 'POST' });
+
+export const unpublishVideo = (chapterId: string) =>
+  fetchJSON<{ ok: boolean }>(`${CURRICULUM_BASE}/api/admin/videos/chapter/${chapterId}/unpublish`, { method: 'POST' });
+
+/** Student read: the live (approved) video pointer for a chapter, or null. */
+export interface ChapterVideo { url: string; thumbnailUrl: string | null; durationSeconds: number | null; version: number }
+export async function getChapterVideo(classId: number, chapterId: string): Promise<ChapterVideo | null> {
+  const chapter = await fetchJSON<{ video?: ChapterVideo | null } | null>(
+    `${CURRICULUM_BASE}/chapter?classId=${classId}&chapterId=${encodeURIComponent(chapterId)}`);
+  return chapter?.video ?? null;
+}
+
 // ── Mistakes ──────────────────────────────────────────────────────────────────
 export function recordMistake(userId: number, questionId: string, topicId: string, chapterId: string): Promise<void> {
   return fetchJSON(`${BASE.replace('/api', '')}/api/users/${userId}/mistakes`, {
