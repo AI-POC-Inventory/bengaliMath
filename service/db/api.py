@@ -3,6 +3,7 @@ from curriculam_reader import get_class_data, get_chapter, get_topic, get_all_qu
 from supabase_client import supabase
 from question_generator import generate as generate_questions, GenerationError
 import lesson_generator as lessons
+import video_generator as videos
 import json
 import os
 import re
@@ -480,6 +481,59 @@ def admin_lesson_clone(lesson_id):
 @app.route("/api/admin/lessons/chapter/<chapter_id>/unpublish", methods=["POST"])
 def admin_lesson_unpublish(chapter_id):
     return _lesson_response(lessons.unpublish_lesson, chapter_id)
+
+
+# ── Admin: Chapter Videos ────────────────────────────────────────────────
+# Generate is async (a Cloud Run Job renders the video; see
+# service/video/entrypoint.py) -- POST .../generate returns a 'generating' row
+# immediately, the admin UI polls GET .../videos or .../videos/<id> until its
+# status becomes 'draft' (ready to review) or 'failed'. Approve/reject/
+# unpublish otherwise mirror the lesson routes exactly.
+
+def _video_response(fn, *args, **kwargs):
+    try:
+        return jsonify(fn(*args, **kwargs))
+    except GenerationError as e:
+        return jsonify({"error": e.message}), e.status
+    except Exception as error:  # noqa: BLE001
+        logger.exception("Video %s error", getattr(fn, "__name__", "call"))
+        return jsonify({"error": "Video operation failed", "details": str(error)}), 500
+
+
+@app.route("/api/admin/videos/generate", methods=["POST"])
+def admin_video_generate():
+    body = request.get_json(silent=True) or {}
+    if not body.get("classId") or not body.get("chapterId"):
+        return jsonify({"error": "Missing required fields: classId, chapterId"}), 400
+    return _video_response(videos.generate, int(body["classId"]), body["chapterId"])
+
+
+@app.route("/api/admin/videos")
+def admin_video_list():
+    class_id = request.args.get("classId")
+    return _video_response(videos.list_videos,
+                           int(class_id) if class_id else None,
+                           request.args.get("chapterId"), request.args.get("status"))
+
+
+@app.route("/api/admin/videos/<video_id>")
+def admin_video_get(video_id):
+    return _video_response(videos.get_video, video_id)
+
+
+@app.route("/api/admin/videos/<video_id>/approve", methods=["POST"])
+def admin_video_approve(video_id):
+    return _video_response(videos.approve_video, video_id)
+
+
+@app.route("/api/admin/videos/<video_id>/reject", methods=["POST"])
+def admin_video_reject(video_id):
+    return _video_response(videos.reject_video, video_id)
+
+
+@app.route("/api/admin/videos/chapter/<chapter_id>/unpublish", methods=["POST"])
+def admin_video_unpublish(chapter_id):
+    return _video_response(videos.unpublish_video, chapter_id)
 
 
 if __name__ == "__main__":

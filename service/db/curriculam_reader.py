@@ -24,18 +24,21 @@ def get_class_data(class_id: int):
     cls = cls_row[0]
 
     # Query 2: all chapters for class. Explicit columns, NOT "*": chapters.details
-    # holds the full lesson JSON (see 007_chapter_lessons.sql) and must stay out
-    # of this list payload -- it is served on demand by /chapter instead.
-    # details_updated_at is only used to derive hasLesson; if that column does
-    # not exist yet (API deployed before migration 007), degrade to "no
-    # lessons" rather than break the whole syllabus.
+    # / chapters.video hold the full lesson/video JSON (007/009) and must stay
+    # out of this list payload -- served on demand by /chapter instead.
+    # details_updated_at / video_updated_at only derive hasLesson/hasVideo; if
+    # a column is missing (API deployed before its migration), degrade to
+    # "flag off" for that feature rather than break the whole syllabus.
     def _chapters(cols: str):
         return supabase.table("chapters").select(cols).eq("class_id", class_id).execute().data
     try:
-        chapters = _timed(f"chapters class_id={class_id}", lambda: _chapters("id,name,description,details_updated_at"))
+        chapters = _timed(f"chapters class_id={class_id}",
+                          lambda: _chapters("id,name,description,details_updated_at,video_updated_at"))
     except Exception:  # noqa: BLE001
-        logger.warning("chapters.details_updated_at unavailable (migration 007 not applied?) -- serving without lesson flags")
-        chapters = _timed(f"chapters class_id={class_id} (no lesson flag)", lambda: _chapters("id,name,description"))
+        logger.warning("chapters.details_updated_at/video_updated_at unavailable "
+                       "(migration 007/009 not applied?) -- serving without lesson/video flags")
+        chapters = _timed(f"chapters class_id={class_id} (no lesson/video flag)",
+                          lambda: _chapters("id,name,description"))
     chapter_ids = [ch["id"] for ch in chapters]
 
     # Query 3: all topics for those chapters (bulk)
@@ -89,6 +92,7 @@ def get_class_data(class_id: int):
                 "name": ch["name"],
                 "description": ch["description"],
                 "hasLesson": bool(ch.get("details_updated_at")),
+                "hasVideo": bool(ch.get("video_updated_at")),
                 "topics": topics_map.get(ch["id"], []),
             }
             for ch in chapters

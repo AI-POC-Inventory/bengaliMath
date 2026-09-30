@@ -8,3 +8,4 @@ gunicorn
 requests
 numpy
 google-cloud-storage
+google-cloud-run

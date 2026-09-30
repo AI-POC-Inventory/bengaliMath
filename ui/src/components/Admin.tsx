@@ -12,10 +12,11 @@ import type {
 import PDFUpload from './PDFUpload';
 import QuestionGenerator from './QuestionGenerator';
 import LessonGenerator from './LessonGenerator';
+import VideoGenerator from './VideoGenerator';
 
 interface Props { darkMode: boolean }
 
-type Tab = 'structure' | 'questions' | 'generator' | 'lessons' | 'pdf-upload' | 'settings';
+type Tab = 'structure' | 'questions' | 'generator' | 'lessons' | 'videos' | 'pdf-upload' | 'settings';
 
 // ── Shared styles ──────────────────────────────────────────────────────────────
 
@@ -940,6 +941,7 @@ export default function Admin({ darkMode }: Props) {
     { id: 'questions', label: 'প্রশ্ন ব্যবস্থাপনা' },
     { id: 'generator', label: 'প্রশ্ন জেনারেটর' },
     { id: 'lessons', label: 'পাঠ জেনারেটর' },
+    { id: 'videos', label: 'ভিডিও জেনারেটর' },
     { id: 'pdf-upload', label: 'PDF আপলোড' },
     { id: 'settings',  label: 'সেটিংস' },
   ];
@@ -988,6 +990,7 @@ export default function Admin({ darkMode }: Props) {
         {tab === 'questions' && <QuestionsTab colors={colors} />}
         {tab === 'generator' && <QuestionGenerator darkMode={darkMode} />}
         {tab === 'lessons' && <LessonGenerator darkMode={darkMode} />}
+        {tab === 'videos' && <VideoGenerator darkMode={darkMode} />}
         {tab === 'pdf-upload' && <PDFUpload darkMode={darkMode} />}
         {tab === 'settings'  && <SettingsTab  colors={colors} />}
       </div>
