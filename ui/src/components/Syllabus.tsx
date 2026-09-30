@@ -2,7 +2,7 @@ import { getClassData } from '../data/curriculum';
 import { getChapterLesson, getChapterVideo } from '../api/client';
 import type { LessonContent, ChapterVideo } from '../api/client';
 import { toBengaliNumber } from '../utils/bengali';
-import type {ClassData,Chapter, Topic } from '../types';
+import type {ClassData,Chapter } from '../types';
 import { useEffect, useState } from 'react';
 import LessonView from './LessonView';
 
@@ -231,76 +231,17 @@ export default function Syllabus({ classId, darkMode }: Props) {
             </div>
           )}
 
-          {selectedChapter.hasLesson && lesson && (
-            <h3 style={{ color: text, fontSize: '1.1rem', fontWeight: 700, margin: '0 0 0.8rem' }}>📝 অনুশীলনের বিষয়</h3>
+          {/* Student view shows only the generated lesson + video for this chapter --
+              the exercise/topic list (question bank) is deliberately not shown here;
+              students practice it via the "অনুশীলন" section instead. */}
+          {!selectedChapter.hasLesson && !selectedChapter.hasVideo && (
+            <div style={{
+              background: cardBg, border: `1px solid ${border}`, borderRadius: '0.9rem',
+              padding: '2rem', textAlign: 'center', color: subText,
+            }}>
+              এই অধ্যায়ের পাঠ বা ভিডিও এখনও প্রস্তুত হয়নি।
+            </div>
           )}
-
-          <div style={{ display: 'grid', gap: '1rem' }}>
-            {selectedChapter.topics.map((topic: Topic, idx: number) => (
-              <div
-                key={topic.id}
-                style={{
-                  background: cardBg,
-                  border: `1px solid ${border}`,
-                  borderRadius: '0.9rem',
-                  padding: '1.3rem',
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem' }}>
-                  <div style={{
-                    width: '36px',
-                    height: '36px',
-                    borderRadius: '50%',
-                    background: '#10b981' + '20',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                    fontSize: '0.9rem',
-                    fontWeight: '700',
-                    color: '#10b981',
-                  }}>
-                    {toBengaliNumber(idx + 1)}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: '600', color: text, fontSize: '1rem' }}>
-                      {topic.name}
-                    </div>
-                    <div style={{ color: subText, fontSize: '0.85rem', marginTop: '0.3rem' }}>
-                      {topic.description}
-                    </div>
-                    <div style={{
-                      marginTop: '0.6rem',
-                      display: 'flex',
-                      gap: '0.5rem',
-                      flexWrap: 'wrap',
-                    }}>
-                      <span style={{
-                        background: '#3b82f6' + '20',
-                        color: '#3b82f6',
-                        padding: '0.2rem 0.6rem',
-                        borderRadius: '1rem',
-                        fontSize: '0.75rem',
-                        fontWeight: '500',
-                      }}>
-                        {toBengaliNumber(topic.questions.length)}টি প্রশ্ন
-                      </span>
-                      <span style={{
-                        background: '#8b5cf6' + '20',
-                        color: '#8b5cf6',
-                        padding: '0.2rem 0.6rem',
-                        borderRadius: '1rem',
-                        fontSize: '0.75rem',
-                        fontWeight: '500',
-                      }}>
-                        {toBengaliNumber(topic.questions.filter(q => q.type === 'mcq').length)} MCQ
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
       )}
     </div>
