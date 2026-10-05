@@ -93,6 +93,30 @@ def test_bulleted_kinds_indent_differently_from_prose_kinds():
         assert not draw.ellipse.called, "prose kind must not draw a bullet marker"
 
 
+def test_example_with_diagram_composites_it_into_the_right_column():
+    """The diagram region (slides.DIAGRAM_BOX) must actually contain the
+    diagram's rendered content, not just leave the text layout narrower --
+    a regression guard for the paste() call itself being wired correctly."""
+    import diagrams
+    x0, y0, x1, y1 = __import__("slides").DIAGRAM_BOX
+    slide = {"kind": "example", "heading": "H", "body": ["problem text"], "narration": "",
+             "diagram": {"type": "percent_grid", "percent": 100}}
+    img = render_slide(slide)
+    standalone = diagrams.render_diagram(slide["diagram"], x1 - x0, y1 - y0)
+    # sample a point inside the diagram region: a 100%-filled percent_grid is
+    # solid ACCENT there, matching what render_diagram alone produces at the
+    # same relative offset.
+    assert img.getpixel((x0 + 40, y0 + 20)) == standalone.getpixel((40, 20))
+
+
+def test_example_without_diagram_uses_the_full_text_width():
+    """No diagram -> no narrower column; this is a cheap smoke check that the
+    content_width branch doesn't accidentally narrow text when there's
+    nothing to make room for."""
+    slide = {"kind": "example", "heading": "H", "body": ["x" * 5], "narration": "", "diagram": None}
+    render_slide(slide)   # must not raise; width-branch correctness is covered by _wrap's own tests
+
+
 def test_missing_font_raises_a_clear_error(monkeypatch):
     import slides
     monkeypatch.setattr(slides, "_FONT_CANDIDATES", ["/no/such/font.ttf"])

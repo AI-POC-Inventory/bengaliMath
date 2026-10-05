@@ -28,6 +28,7 @@ def test_validate_normalizes():
     assert s["keyPoints"] == ["k"]
     assert len(s["examples"]) == 1 and s["examples"][0]["steps"] == ["s1", "s2"]
     assert s["examples"][0]["verified"] is None                  # non-bool coerced to unchecked
+    assert s["examples"][0]["diagram"] is None                   # no diagram field supplied -> None, not an error
     assert len(s["quickCheck"]) == 1
 
 
@@ -93,7 +94,7 @@ def test_loads_tolerates_surrounding_text():
 
 @pytest.fixture
 def fake_llm(monkeypatch):
-    calls = {"outline": 0, "section": 0, "verify": 0}
+    calls = {"outline": 0, "section": 0, "verify": 0, "diagram": 0}
     monkeypatch.setattr(lg, "retrieve_context",
                         lambda topic, nos, top_k=20: (f"ctx:{topic['name']}", [f"{topic['name']}#1", "shared"]))
 
@@ -106,6 +107,15 @@ def fake_llm(monkeypatch):
             calls["verify"] += 1
             items = json.loads(prompt[prompt.index("["):prompt.index("]\n\nশুধু") + 1])
             return json.dumps([{"i": it["i"], "myAnswer": "x", "matches": it["i"] != 1} for it in items])
+        if "diagram" in prompt and "ছবির ধরনসমূহ" in prompt:
+            calls["diagram"] += 1
+            # The catalog text above the items array also contains bracketed
+            # JSON snippets (e.g. "values":[৩,২]), so anchor on the actual
+            # marker rather than the first "[" in the whole prompt.
+            marker = "উদাহরণসমূহ:\n"
+            start = prompt.index(marker) + len(marker)
+            items = json.loads(prompt[start:prompt.index("]\n\nশুধু", start) + 1])
+            return json.dumps([{"i": it["i"], "diagram": None} for it in items])
         calls["section"] += 1
         title = prompt.split("অংশ: ")[1].split(" - ")[0]
         if title == "BAD":
@@ -122,7 +132,7 @@ def test_pipeline_outline_sections_verify(fake_llm):
     calls, _ = fake_llm
     content, ids = lg.build_lesson("Ch", [2, 3])
     assert [s["title"] for s in content["sections"]] == ["S1", "S2"]        # failing section skipped
-    assert calls["outline"] == 1 and calls["verify"] == 1
+    assert calls["outline"] == 1 and calls["verify"] == 1 and calls["diagram"] == 1
     assert calls["section"] == 2 + 2                                         # S1, S2 once; BAD twice (one retry)
     flags = [e["verified"] for s in content["sections"] for e in s["examples"]]
     assert flags == [True, False, True, True]                               # the mismatch is flagged
@@ -142,6 +152,92 @@ def test_verification_outage_leaves_examples_unchecked(monkeypatch, fake_llm):
                         lambda prompt, temperature=0.8, model=None: "nope" if "claimedAnswer" in prompt else llm(prompt))
     content, _ = lg.build_lesson("Ch", [2])
     assert all(e["verified"] is None for s in content["sections"] for e in s["examples"])
+
+
+# ── _classify_diagrams ────────────────────────────────────────────────────
+
+def _two_section_examples():
+    # In the real pipeline, validate_content() always runs before
+    # _classify_diagrams() and sets diagram=None on every example already --
+    # matching that invariant here, not just the fields _classify_diagrams
+    # itself touches.
+    return [
+        {"examples": [{"problem": "p1", "answer": "a1", "diagram": None},
+                      {"problem": "p2", "answer": "a2", "diagram": None}]},
+        {"examples": [{"problem": "p3", "answer": "a3", "diagram": None}]},
+    ]
+
+
+def test_classify_diagrams_assigns_validated_specs_by_index(monkeypatch):
+    def fake_call_json(prompt, want, temperature, attempts=2):
+        return [
+            {"i": 0, "diagram": {"type": "ratio_icons", "values": [3, 2], "labels": ["ক", "খ"]}},
+            {"i": 1, "diagram": None},
+            {"i": 2, "diagram": {"type": "percent_grid", "percent": 30}},
+        ]
+    monkeypatch.setattr(lg, "_call_json", fake_call_json)
+    sections = _two_section_examples()
+    lg._classify_diagrams(sections)
+    assert sections[0]["examples"][0]["diagram"] == {"type": "ratio_icons", "values": [3, 2], "labels": ["ক", "খ"]}
+    assert sections[0]["examples"][1]["diagram"] is None
+    assert sections[1]["examples"][0]["diagram"] == {"type": "percent_grid", "percent": 30}
+
+
+def test_classify_diagrams_drops_invalid_specs_instead_of_erroring(monkeypatch):
+    """A spec the model gets wrong (bad type, out-of-range values) must not
+    surface as an exception -- it just means that example gets no picture."""
+    monkeypatch.setattr(lg, "_call_json", lambda *a, **k: [
+        {"i": 0, "diagram": {"type": "ratio_icons", "values": [99, 2]}},     # out of range
+        {"i": 1, "diagram": {"type": "not_a_real_type"}},
+    ])
+    sections = [{"examples": [{"problem": "p1", "answer": "a1"}, {"problem": "p2", "answer": "a2"}]}]
+    lg._classify_diagrams(sections)
+    assert sections[0]["examples"][0]["diagram"] is None
+    assert sections[0]["examples"][1]["diagram"] is None
+
+
+def test_classify_diagrams_outage_leaves_examples_without_diagrams(monkeypatch):
+    monkeypatch.setattr(lg, "_call_json", lambda *a, **k: None)
+    sections = _two_section_examples()
+    lg._classify_diagrams(sections)
+    assert all(e["diagram"] is None for s in sections for e in s["examples"])
+
+
+def test_classify_diagrams_with_no_examples_makes_no_call(monkeypatch):
+    calls = []
+    monkeypatch.setattr(lg, "_call_json", lambda *a, **k: calls.append(1) or [])
+    lg._classify_diagrams([{"examples": []}])
+    assert calls == []
+
+
+def test_classify_diagrams_prompt_never_leaks_a_number_not_in_the_example():
+    """Documents the no-new-facts contract: the prompt sent to the model
+    contains only the example's own problem/answer text, nothing invented."""
+    prompt = lg._diagram_prompt([{"i": 0, "problem": "unique-marker-7429", "answer": "unique-answer-512"}])
+    assert "unique-marker-7429" in prompt and "unique-answer-512" in prompt
+    assert "নতুন কোনো সংখ্যা" in prompt                 # the explicit no-new-facts instruction is present
+
+
+# ── validate_content: diagram pass-through ────────────────────────────────
+
+def test_validate_content_keeps_a_valid_diagram():
+    content = {"sections": [{"title": "T", "explanation": "E", "examples": [
+        {"problem": "p", "answer": "a", "diagram": {"type": "fraction_split", "numerator": 3, "denominator": 4}},
+    ]}]}
+    c = lg.validate_content(content)
+    assert c["sections"][0]["examples"][0]["diagram"] == {"type": "fraction_split", "numerator": 3, "denominator": 4}
+
+
+def test_validate_content_drops_an_invalid_admin_edited_diagram():
+    """An admin could hand-edit the JSON (via the API) into something that
+    doesn't validate -- validate_content must drop just the diagram, not
+    reject the whole example/lesson over it."""
+    content = {"sections": [{"title": "T", "explanation": "E", "examples": [
+        {"problem": "p", "answer": "a", "diagram": {"type": "fraction_split", "numerator": -5, "denominator": 4}},
+    ]}]}
+    c = lg.validate_content(content)
+    assert c["sections"][0]["examples"][0]["diagram"] is None
+    assert c["sections"][0]["examples"][0]["problem"] == "p"    # the rest of the example is untouched
 
 
 # ── Review workflow against an in-memory table ───────────────────────────

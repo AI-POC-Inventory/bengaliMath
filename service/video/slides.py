@@ -147,10 +147,16 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, size: int, bold: bool, max_width
     return lines
 
 
+# An example slide carrying a diagram gets a two-column layout: diagram on
+# the right (its own module, see diagrams.py), problem/steps/answer text in a
+# narrower left column -- rather than a diagram squeezed under full-width
+# text, which is cramped and buries the picture below the fold.
+DIAGRAM_BOX = (680, 150, WIDTH - MARGIN, HEIGHT - 50)   # (x0, y0, x1, y1)
+
+
 def render_slide(slide: dict) -> Image.Image:
     img = Image.new("RGB", (WIDTH, HEIGHT), BG)
     draw = ImageDraw.Draw(img)
-    content_width = WIDTH - 2 * MARGIN
 
     heading_size = 54 if slide["kind"] in ("title", "section_title") else 38
     _draw_text(draw, (MARGIN, 70 if slide["kind"] in ("title", "section_title") else 50),
@@ -162,9 +168,18 @@ def render_slide(slide: dict) -> Image.Image:
     if slide["kind"] == "section_title":
         return img
 
-    body_size = 30
+    diagram_spec = slide.get("diagram")
+    if diagram_spec:
+        import diagrams                 # lazy: diagrams.py imports from this module at its own top level
+        x0, y0, x1, y1 = DIAGRAM_BOX
+        img.paste(diagrams.render_diagram(diagram_spec, x1 - x0, y1 - y0), (x0, y0))
+        content_width = x0 - MARGIN - 20
+    else:
+        content_width = WIDTH - 2 * MARGIN
+
+    body_size = 30 if not diagram_spec else 25
     y = 150
-    line_height = 46
+    line_height = 46 if not diagram_spec else 38
     bulleted = slide["kind"] in ("key_points", "common_mistakes")
 
     indent = 30 if bulleted else 0

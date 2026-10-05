@@ -38,6 +38,7 @@ from datetime import datetime, timezone
 
 from supabase_client import supabase
 
+from diagram_spec import catalog_prompt_text, validate_diagram
 from question_generator import (
     GenerationError, resolve_chapter, retrieve_context, _call_gemini,
 )
@@ -132,6 +133,26 @@ def _verify_prompt(items: list[dict]) -> str:
 [{{"i": 0, "myAnswer": "...", "matches": true}}]"""
 
 
+def _diagram_prompt(items: list[dict]) -> str:
+    return f"""নিচে কয়েকটি ইতিমধ্যে যাচাইকৃত গণিত উদাহরণ দেওয়া আছে (সমস্যা ও উত্তর ঠিক আছে, বদলাবে না)।
+প্রতিটির জন্য দেখো নিচের ৮ ধরনের ছবির (diagram) কোনোটি মানানসই কি না -- ছোট শিক্ষার্থীদের জন্য ধারণাটি চোখে দেখানোর জন্য।
+মানানসই কিছু না থাকলে diagram: null দেবে। একটি উদাহরণে সর্বোচ্চ একটি diagram।
+
+ছবির ধরনসমূহ:
+{catalog_prompt_text()}
+
+নিয়ম:
+১. diagram-এর সংখ্যাগুলো অবশ্যই সমস্যা/উত্তরে যা আছে তা থেকেই নিতে হবে -- নতুন কোনো সংখ্যা বা তথ্য বানাবে না।
+২. square_root_square শুধু তখনই দেবে যখন সংখ্যাটি সত্যিই পূর্ণবর্গ।
+৩. বেশিরভাগ সংক্ষিপ্ত/বিমূর্ত উদাহরণে কোনো diagram মানানসই নাও হতে পারে -- তখন null দেওয়াই সঠিক, জোর করে বসাবে না।
+
+উদাহরণসমূহ:
+{json.dumps(items, ensure_ascii=False)}
+
+শুধু JSON অ্যারে দাও, প্রতিটি উদাহরণের জন্য একটি করে, ইনপুটের সমান ক্রমে:
+[{{"i": 0, "diagram": {{"type": "...", ...}} }}, {{"i": 1, "diagram": null}}]"""
+
+
 # ── LLM plumbing ─────────────────────────────────────────────────────────
 
 def _loads(raw: str):
@@ -223,6 +244,12 @@ def validate_content(content) -> dict:
                 "steps": _lines(ex.get("steps")),
                 "answer": _text(ex.get("answer"), 2000),
                 "verified": verified if isinstance(verified, bool) else None,
+                # Optional pictorial representation (see diagram_spec.py). Runs
+                # through the same validator whether it came from generation
+                # (_classify_diagrams) or an admin hand-editing JSON -- invalid
+                # input is dropped (no diagram), never an error that blocks
+                # saving the rest of the example.
+                "diagram": validate_diagram(ex.get("diagram")),
             })
 
         quick = [{"question": _text(q.get("question"), 2000), "answer": _text(q.get("answer"), 2000)}
@@ -285,6 +312,30 @@ def _verify_examples(sections: list[dict]) -> None:
             sections[si]["examples"][ei]["verified"] = r["matches"]
 
 
+def _classify_diagrams(sections: list[dict]) -> None:
+    """Mutates examples in place: adds a validated "diagram" spec (see
+    diagram_spec.py) or leaves it None. One call covers every example in the
+    lesson, same batching as _verify_examples, and runs AFTER verification --
+    only examples whose text/answer are already settled get a picture, so a
+    diagram's numbers trace back to content that has already been checked."""
+    refs, items = [], []
+    for si, s in enumerate(sections):
+        for ei, ex in enumerate(s["examples"]):
+            refs.append((si, ei))
+            items.append({"i": len(items), "problem": ex["problem"], "answer": ex["answer"]})
+    if not items:
+        return
+    result = _call_json(_diagram_prompt(items), list, temperature=0.0)
+    if result is None:
+        log.warning("diagram classification unavailable; examples left without diagrams")
+        return
+    by_index = {r.get("i"): r for r in result if isinstance(r, dict)}
+    for idx, (si, ei) in enumerate(refs):
+        r = by_index.get(idx)
+        if r is not None:
+            sections[si]["examples"][ei]["diagram"] = validate_diagram(r.get("diagram"))
+
+
 def build_lesson(chapter_name: str, gcs_chapter_nos: list[int]) -> tuple[dict, list[str]]:
     """The full LLM pipeline for one chapter. Returns (validated content,
     every source chunk id). No database access -- testable on its own."""
@@ -319,6 +370,7 @@ def build_lesson(chapter_name: str, gcs_chapter_nos: list[int]) -> tuple[dict, l
         "sections": sections,
     })
     _verify_examples(content["sections"])
+    _classify_diagrams(content["sections"])
     return content, list(dict.fromkeys(chunk_ids))            # de-dupe, keep order
 
 
