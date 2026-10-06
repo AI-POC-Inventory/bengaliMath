@@ -5,6 +5,7 @@ import { toBengaliNumber } from '../utils/bengali';
 import type {ClassData,Chapter } from '../types';
 import { useEffect, useState } from 'react';
 import LessonView from './LessonView';
+import { groupChaptersBySubject } from '../data/subjects';
 
 interface Props {
   classId: number;
@@ -130,63 +131,76 @@ export default function Syllabus({ classId, darkMode }: Props) {
       </div>
 
       {!selectedChapter ? (
-        /* Chapter list */
-        <div style={{ display: 'grid', gap: '1rem' }}>
-          {classData.chapters.map((chapter, idx) => (
-            <div
-              key={chapter.id}
-              onClick={() => setSelectedChapter(chapter)}
-              style={{
-                background: cardBg,
-                border: `1px solid ${border}`,
-                borderRadius: '1rem',
-                padding: '1.5rem',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '1rem',
-              }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLElement).style.borderColor = accent;
-                (e.currentTarget as HTMLElement).style.transform = 'translateX(4px)';
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLElement).style.borderColor = border;
-                (e.currentTarget as HTMLElement).style.transform = 'translateX(0)';
-              }}
-            >
-              <div style={{
-                width: '48px',
-                height: '48px',
-                borderRadius: '0.8rem',
-                background: accent + '20',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-                fontSize: '1.4rem',
-                fontWeight: '700',
-                color: accent,
-              }}>
-                {toBengaliNumber(idx + 1)}
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: '600', color: text, fontSize: '1.05rem' }}>
-                  {chapter.name}
-                </div>
-                <div style={{ color: subText, fontSize: '0.85rem', marginTop: '0.2rem' }}>
-                  {chapter.description}
-                </div>
-                {(chapter.hasLesson || chapter.hasVideo) && (
-                  <div style={{ fontSize: '0.8rem', marginTop: '0.3rem' }}>
-                    {chapter.hasLesson && <span style={{ color: '#10b981' }}>📖 পাঠ আছে</span>}
-                    {chapter.hasLesson && chapter.hasVideo && <span style={{ margin: '0 0.4rem' }}> </span>}
-                    {chapter.hasVideo && <span style={{ color: '#3b82f6' }}>📹 ভিডিও আছে</span>}
+        /* Chapter list -- grouped by subject (পাটীগণিত/বীজগণিত/জ্যামিতি/বিবিধ)
+           for classes with a mapping (see ../data/subjects.ts); falls back to
+           the book's own order, ungrouped, for any class without one. */
+        <div style={{ display: 'grid', gap: '1.5rem' }}>
+          {groupChaptersBySubject(classId, classData.chapters).map((group, gi) => (
+            <div key={group.subject ?? `ungrouped-${gi}`}>
+              {group.label && (
+                <h2 style={{ color: accent, fontWeight: '700', fontSize: '1.15rem', margin: '0 0 0.8rem' }}>
+                  {group.label}
+                </h2>
+              )}
+              <div style={{ display: 'grid', gap: '1rem' }}>
+                {group.chapters.map((chapter, idx) => (
+                  <div
+                    key={chapter.id}
+                    onClick={() => setSelectedChapter(chapter)}
+                    style={{
+                      background: cardBg,
+                      border: `1px solid ${border}`,
+                      borderRadius: '1rem',
+                      padding: '1.5rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '1rem',
+                    }}
+                    onMouseEnter={e => {
+                      (e.currentTarget as HTMLElement).style.borderColor = accent;
+                      (e.currentTarget as HTMLElement).style.transform = 'translateX(4px)';
+                    }}
+                    onMouseLeave={e => {
+                      (e.currentTarget as HTMLElement).style.borderColor = border;
+                      (e.currentTarget as HTMLElement).style.transform = 'translateX(0)';
+                    }}
+                  >
+                    <div style={{
+                      width: '48px',
+                      height: '48px',
+                      borderRadius: '0.8rem',
+                      background: accent + '20',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      fontSize: '1.4rem',
+                      fontWeight: '700',
+                      color: accent,
+                    }}>
+                      {toBengaliNumber(idx + 1)}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontWeight: '600', color: text, fontSize: '1.05rem' }}>
+                        {chapter.name}
+                      </div>
+                      <div style={{ color: subText, fontSize: '0.85rem', marginTop: '0.2rem' }}>
+                        {chapter.description}
+                      </div>
+                      {(chapter.hasLesson || chapter.hasVideo) && (
+                        <div style={{ fontSize: '0.8rem', marginTop: '0.3rem' }}>
+                          {chapter.hasLesson && <span style={{ color: '#10b981' }}>📖 পাঠ আছে</span>}
+                          {chapter.hasLesson && chapter.hasVideo && <span style={{ margin: '0 0.4rem' }}> </span>}
+                          {chapter.hasVideo && <span style={{ color: '#3b82f6' }}>📹 ভিডিও আছে</span>}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{ color: subText, fontSize: '1.2rem' }}>›</div>
                   </div>
-                )}
+                ))}
               </div>
-              <div style={{ color: subText, fontSize: '1.2rem' }}>›</div>
             </div>
           ))}
         </div>
