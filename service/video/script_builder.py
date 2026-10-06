@@ -127,9 +127,13 @@ def build_script(chapter_name: str, lesson: dict) -> list[dict]:
             })
 
         for i, ex in enumerate(section.get("examples") or [], start=1):
+            # diagram is already validated by service/db/diagram_spec.py at
+            # lesson-approval time (see lesson_generator.py's validate_content);
+            # trusted as-is here, same as every other already-approved field.
             slides.append({
                 "kind": "example", "heading": f"{title} — উদাহরণ {i}",
                 "body": _example_body(ex), "narration": _example_narration(ex),
+                "diagram": ex.get("diagram"),
             })
 
         if section.get("commonMistakes"):

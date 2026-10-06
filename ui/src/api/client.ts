@@ -254,9 +254,24 @@ export const batchRejectStaged = (ids: string[]) =>
 // GET /chapter endpoint. Content shape is validated server-side
 // (service/db/lesson_generator.py: validate_content).
 
+// A pictorial representation for a worked example (see
+// service/db/diagram_spec.py, the single source of truth this mirrors).
+// Drawn deterministically from these exact values -- never AI-generated --
+// by DiagramView.tsx here and service/video/diagrams.py for the video.
+export type DiagramSpec =
+  | { type: 'ratio_icons'; values: [number, number]; labels: [string, string] }
+  | { type: 'percent_grid'; percent: number }
+  | { type: 'fraction_split'; numerator: number; denominator: number }
+  | { type: 'exponent_stack'; base: number; exponent: number }
+  | { type: 'square_root_square'; n: number }
+  | { type: 'area_grid'; rows: number; cols: number }
+  | { type: 'equation_balance'; left: (number | 'x')[]; right: (number | 'x')[] }
+  | { type: 'symmetry_mirror'; shape: 'triangle' | 'rectangle' | 'circle'; axis: 'vertical' | 'horizontal' };
+
 export interface LessonExample {
   problem: string; steps: string[]; answer: string;
   verified: boolean | null;   // true = independently re-solved OK, false = disagreed, null = not checked
+  diagram?: DiagramSpec | null;
 }
 export interface LessonSection {
   title: string; explanation: string; keyPoints: string[]; examples: LessonExample[];

@@ -39,6 +39,23 @@ def test_every_slide_has_narration_and_a_heading():
         assert s["narration"].strip()
 
 
+def test_example_slide_carries_its_diagram_spec_through_untouched():
+    """The diagram is already validated at lesson-approval time
+    (lesson_generator.py); script_builder trusts it as-is, same as every
+    other already-approved example field -- no re-validation here."""
+    lesson = {"sections": [{"title": "T", "explanation": "E", "examples": [
+        {"problem": "p", "answer": "a", "diagram": {"type": "ratio_icons", "values": [3, 2], "labels": ["ক", "খ"]}},
+    ]}]}
+    ex_slide = next(s for s in build_script("Ch", lesson) if s["kind"] == "example")
+    assert ex_slide["diagram"] == {"type": "ratio_icons", "values": [3, 2], "labels": ["ক", "খ"]}
+
+
+def test_example_slide_diagram_is_none_when_example_has_none():
+    lesson = {"sections": [{"title": "T", "explanation": "E", "examples": [{"problem": "p", "answer": "a"}]}]}
+    ex_slide = next(s for s in build_script("Ch", lesson) if s["kind"] == "example")
+    assert ex_slide["diagram"] is None
+
+
 def test_example_narration_includes_problem_steps_and_answer_in_order():
     script = build_script("Ch", LESSON)
     ex = next(s for s in script if s["kind"] == "example")

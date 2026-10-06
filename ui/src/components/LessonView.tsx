@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { toBengaliNumber } from '../utils/bengali';
 import type { LessonContent, LessonExample, LessonSection } from '../api/client';
+import DiagramView from './diagrams/DiagramView';
 
 interface Props {
   lesson: LessonContent;
@@ -41,7 +42,9 @@ function Label({ children, color }: { children: React.ReactNode; color: string }
   return <div style={{ fontWeight: 700, fontSize: '0.85rem', color, marginBottom: '0.4rem' }}>{children}</div>;
 }
 
-function Example({ ex, n, c, showVerification }: { ex: LessonExample; n: number; c: Palette; showVerification?: boolean }) {
+function Example({ ex, n, c, darkMode, showVerification }: {
+  ex: LessonExample; n: number; c: Palette; darkMode: boolean; showVerification?: boolean;
+}) {
   return (
     <div style={{ border: `1px solid ${c.border}`, borderRadius: '0.7rem', padding: '0.9rem 1rem', marginBottom: '0.8rem' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem', flexWrap: 'wrap' }}>
@@ -57,6 +60,7 @@ function Example({ ex, n, c, showVerification }: { ex: LessonExample; n: number;
         )}
       </div>
       <div style={{ color: c.text, fontWeight: 600, marginBottom: '0.5rem', whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{ex.problem}</div>
+      {ex.diagram && <DiagramView spec={ex.diagram} darkMode={darkMode} />}
       {ex.steps.length > 0 && (
         <ol style={{ margin: '0 0 0.5rem', paddingLeft: '1.4rem', color: c.text, lineHeight: 1.8 }}>
           {ex.steps.map((s, i) => <li key={i} style={{ whiteSpace: 'pre-wrap' }}>{s}</li>)}
@@ -88,8 +92,8 @@ function QuickCheck({ q, n, c }: { q: { question: string; answer: string }; n: n
   );
 }
 
-function Section({ s, n, open, onToggle, c, showVerification }: {
-  s: LessonSection; n: number; open: boolean; onToggle: () => void; c: Palette; showVerification?: boolean;
+function Section({ s, n, open, onToggle, c, darkMode, showVerification }: {
+  s: LessonSection; n: number; open: boolean; onToggle: () => void; c: Palette; darkMode: boolean; showVerification?: boolean;
 }) {
   return (
     <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: '0.9rem', marginBottom: '0.9rem', overflow: 'hidden' }}>
@@ -121,7 +125,7 @@ function Section({ s, n, open, onToggle, c, showVerification }: {
           {s.examples.length > 0 && (
             <div style={{ marginBottom: '1rem' }}>
               <Label color={c.text}>✏️ চলো উদাহরণ দেখি</Label>
-              {s.examples.map((ex, i) => <Example key={i} ex={ex} n={i + 1} c={c} showVerification={showVerification} />)}
+              {s.examples.map((ex, i) => <Example key={i} ex={ex} n={i + 1} c={c} darkMode={darkMode} showVerification={showVerification} />)}
             </div>
           )}
 
@@ -197,7 +201,7 @@ export default function LessonView({ lesson, darkMode, showVerification }: Props
       )}
 
       {lesson.sections.map((s, i) => (
-        <Section key={i} s={s} n={i + 1} open={openSet.has(i)} onToggle={() => toggle(i)} c={c} showVerification={showVerification} />
+        <Section key={i} s={s} n={i + 1} open={openSet.has(i)} onToggle={() => toggle(i)} c={c} darkMode={darkMode} showVerification={showVerification} />
       ))}
     </div>
   );
