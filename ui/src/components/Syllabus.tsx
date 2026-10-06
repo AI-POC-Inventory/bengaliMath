@@ -178,11 +178,13 @@ export default function Syllabus({ classId, darkMode }: Props) {
                 <div style={{ color: subText, fontSize: '0.85rem', marginTop: '0.2rem' }}>
                   {chapter.description}
                 </div>
-                <div style={{ color: accent, fontSize: '0.8rem', marginTop: '0.3rem' }}>
-                  {toBengaliNumber(chapter.topics.length)}টি বিষয়
-                  {chapter.hasLesson && <span style={{ marginLeft: '0.6rem', color: '#10b981' }}>📖 পাঠ আছে</span>}
-                  {chapter.hasVideo && <span style={{ marginLeft: '0.6rem', color: '#3b82f6' }}>📹 ভিডিও আছে</span>}
-                </div>
+                {(chapter.hasLesson || chapter.hasVideo) && (
+                  <div style={{ fontSize: '0.8rem', marginTop: '0.3rem' }}>
+                    {chapter.hasLesson && <span style={{ color: '#10b981' }}>📖 পাঠ আছে</span>}
+                    {chapter.hasLesson && chapter.hasVideo && <span style={{ margin: '0 0.4rem' }}> </span>}
+                    {chapter.hasVideo && <span style={{ color: '#3b82f6' }}>📹 ভিডিও আছে</span>}
+                  </div>
+                )}
               </div>
               <div style={{ color: subText, fontSize: '1.2rem' }}>›</div>
             </div>
