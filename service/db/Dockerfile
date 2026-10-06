@@ -6,8 +6,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code (no .env — secrets come from Cloud Run env vars)
-COPY api.py curriculam_reader.py db_helper.py supabase_client.py embed.py question_generator.py lesson_generator.py video_generator.py ./
+# Copy application code (no .env — secrets come from Cloud Run env vars).
+# *.py, not an enumerated list: an enumerated COPY has already caused two
+# incidents (diagram_spec.py was once caught before deploy, then genuinely
+# shipped and crash-looped every worker in production because this line
+# wasn't updated when the file was added -- see git history). *.py only
+# matches this directory, not tests/, so nothing extra gets pulled in.
+COPY *.py ./
 
 # Cloud Run injects PORT; default to 8080
 ENV PORT=8080

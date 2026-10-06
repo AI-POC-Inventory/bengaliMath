@@ -19,7 +19,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # No .env — Supabase/GCP credentials come from Cloud Run Job env vars/secrets.
-COPY entrypoint.py script_builder.py slides.py tts.py render.py supabase_client.py ./
+# *.py, not an enumerated list: service/db's equivalent enumerated COPY just
+# caused a production outage (diagram_spec.py added there but never added to
+# that COPY line -> ModuleNotFoundError crash-looped every worker). This job
+# had the identical gap for diagrams.py, just not yet triggered.
+COPY *.py ./
 
 ENV PYTHONUNBUFFERED=1
 
